@@ -44,6 +44,57 @@ import { Recipe, Ingredient, MealPlan, ShoppingItem, PantryItem, MealPlanDay } f
 // Base Category List
 const CATEGORIES = ["All Recipes", "Appetizers", "Baking", "Quick Meals", "Desserts"];
 
+// Helper function to scale ingredient amounts for double/triple batches
+const scaleAmount = (amount: string, multiplier: number): string => {
+  if (multiplier === 1) return amount;
+  if (!amount || amount.toLowerCase() === "to taste" || amount.toLowerCase() === "as needed") return amount;
+
+  // Round helper
+  const formatNumber = (num: number): string => {
+    if (Number.isInteger(num)) {
+      return num.toString();
+    }
+    // Round to 2 decimal places max, discarding trailing zeros
+    return parseFloat(num.toFixed(2)).toString();
+  };
+
+  // Multiply parsed value
+  const multiplyNum = (val: string): string => {
+    if (val.includes("/")) {
+      const parts = val.trim().split(/\s+/);
+      let whole = 0;
+      let fraction = val;
+      if (parts.length > 1) {
+        whole = parseFloat(parts[0]);
+        fraction = parts[1];
+      }
+      const fracParts = fraction.split("/");
+      if (fracParts.length === 2) {
+        const num = parseFloat(fracParts[0]);
+        const den = parseFloat(fracParts[1]);
+        if (!isNaN(num) && !isNaN(den)) {
+          const decimalVal = whole + (num / den);
+          const scaled = decimalVal * multiplier;
+          return formatNumber(scaled);
+        }
+      }
+    }
+
+    const n = parseFloat(val);
+    if (!isNaN(n)) {
+      return formatNumber(n * multiplier);
+    }
+    return val;
+  };
+
+  // Matches integers, decimals, and fractions (optionally mixed like 1 1/2 or 1/2)
+  const complexRegex = /(\d+\s+)?\d+\/\d+|\d+(\.\d+)?/g;
+  
+  return amount.replace(complexRegex, (match) => {
+    return multiplyNum(match);
+  });
+};
+
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<"recipes" | "planner" | "scanner" | "groceries" | "account">("recipes");
@@ -202,6 +253,7 @@ export default function App() {
   const [focusedRecipe, setFocusedRecipe] = useState<Recipe | null>(null);
   const [checkedIngredients, setCheckedIngredients] = useState<{ [key: string]: boolean }>({});
   const [focusedStepIndex, setFocusedStepIndex] = useState<number | null>(null);
+  const [batchMultiplier, setBatchMultiplier] = useState<number>(1);
   
   // Share & Import State
   const [showShareModal, setShowShareModal] = useState<Recipe | null>(null);
@@ -334,6 +386,11 @@ export default function App() {
     }
     return () => clearInterval(interval);
   }, [timerActive, timerRemaining]);
+
+  // Reset batch multiplier when focused recipe changes
+  useEffect(() => {
+    setBatchMultiplier(1);
+  }, [focusedRecipe?.id]);
 
   // Handle Bookmarking
   const toggleBookmark = async (e: React.MouseEvent, recipe: Recipe) => {
@@ -505,7 +562,7 @@ export default function App() {
       if (data.success) {
         setRecipesList((prev) => [...prev, data.recipe]);
         setImportStatus("success");
-        setImportStatusMsg(`🎉 "${importingRecipe.name}" has been successfully imported into your workspace collection!`);
+        setImportStatusMsg(`🎉 "${importingRecipe.name}" has been successfully imported into your family cookbook!`);
         setTimeout(() => {
           setImportingRecipe(null);
           setImportStatus("idle");
@@ -938,7 +995,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
               className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all duration-150 uppercase font-medium tracking-wider ${activeTab === "account" ? "bg-[#fed01b] text-[#231b00] font-semibold font-mono" : "text-slate-300 hover:bg-slate-800"}`}
             >
               <User size={18} />
-              Chef Workspace
+              My Kitchen
             </button>
           </nav>
         </div>
@@ -1859,7 +1916,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                 {/* Banner with Profile Details embedded directly */}
                 <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-[#091426] relative p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 min-h-[160px]">
                   {/* Top right label */}
-                  <span className="absolute top-4 right-4 text-xs font-mono tracking-widest text-[#fed01b] select-none uppercase font-semibold">Chef Workspace</span>
+                  <span className="absolute top-4 right-4 text-xs font-mono tracking-widest text-[#fed01b] select-none uppercase font-semibold">My Kitchen</span>
                   
                   <div className="flex items-center gap-5 mt-4 md:mt-0">
                     <div className="w-20 h-20 rounded-full border-4 border-slate-800 overflow-hidden shadow-lg bg-white flex-shrink-0">
@@ -2170,7 +2227,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                           className="w-full bg-[#091426] text-white hover:bg-indigo-950 px-4 py-2.5 text-xs font-mono font-bold uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
                         >
                           <Save size={14} className="text-[#fed01b]" />
-                          Save Workspace Changes
+                          Save Kitchen Settings
                         </button>
                       </form>
                     </motion.div>
@@ -2281,7 +2338,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                             <Smartphone className="text-orange-500 mt-0.5" size={18} />
                             <div>
                               <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Two-Factor Authentication (2FA)</h5>
-                              <p className="text-[11px] text-slate-500 max-w-md">Secure your Cully workspace sessions by requiring an authenticator code on every device login attempt.</p>
+                              <p className="text-[11px] text-slate-500 max-w-md">Secure your Cully kitchen sessions by requiring an authenticator code on every device login attempt.</p>
                             </div>
                           </div>
                           
@@ -2706,7 +2763,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                               </div>
                             </div>
                             <p className="text-xs text-slate-600 leading-relaxed font-body-md pt-1">
-                              Drop your `.json` backup file or choose it below to upload and synchronize recipes with your workspace. Choose your importing strategy first to either merge or wipe.
+                              Drop your `.json` backup file or choose it below to upload and synchronize recipes with your family cookbook. Choose your importing strategy first to either merge or wipe.
                             </p>
                           </div>
 
@@ -2860,7 +2917,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
           className={`flex flex-col items-center gap-1 text-[10px] uppercase font-semibold font-mono tracking-tighter ${activeTab === "account" ? "text-[#fed01b]" : "text-slate-400"}`}
         >
           <User size={16} />
-          Workspace
+          My Kitchen
         </button>
       </nav>
 
@@ -2938,6 +2995,37 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                       </button>
                     </div>
 
+                    {/* Batch Multiplier Portion Controls */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                      <div>
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 block font-bold">Recipe Scale</span>
+                        <p className="text-[11px] text-slate-400 leading-normal">Scale ingredients for a double or triple batch.</p>
+                      </div>
+                      <div className="flex items-center gap-1 bg-slate-200/50 p-1 r-lg rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setBatchMultiplier(1)}
+                          className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase rounded transition-all ${batchMultiplier === 1 ? "bg-white text-[#091426] shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+                        >
+                          1x
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBatchMultiplier(2)}
+                          className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase rounded transition-all ${batchMultiplier === 2 ? "bg-[#fed01b] text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+                        >
+                          2X Double
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBatchMultiplier(3)}
+                          className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase rounded transition-all ${batchMultiplier === 3 ? "bg-[#fed01b] text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+                        >
+                          3X Triple
+                        </button>
+                      </div>
+                    </div>
+
                     <p className="text-[11px] text-slate-400 italic">Verify and prepare measured items before cooking trigger:</p>
 
                     <div className="space-y-2">
@@ -2957,7 +3045,9 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
 
                             <div className="flex justify-between w-full text-xs">
                               <span className={`font-semibold ${isChecked ? "line-through text-slate-400" : "text-slate-800"}`}>{ing.name}</span>
-                              <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 text-[10px]">{ing.amount}</span>
+                              <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] font-bold transition-all ${batchMultiplier > 1 ? "bg-amber-100 text-[#6f5900] border border-amber-250 scale-105" : "bg-slate-100 text-slate-600"}`}>
+                                {scaleAmount(ing.amount, batchMultiplier)}
+                              </span>
                             </div>
                           </div>
                         );
@@ -3117,7 +3207,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-normal italic">
-                    Other chefs can open this link to import this exact menu, with measurements and steps, into their Cully workspace immediately.
+                    Other home cooks can open this link to import this exact menu, with measurements and steps, into their Cully cookbook immediately.
                   </p>
                 </div>
 

@@ -199,6 +199,53 @@ app.delete("/api/recipes/:id", (req, res) => {
   res.json({ success: true, message: "Recipe deleted successfully" });
 });
 
+// 4.5. Bulk import backup recipes
+app.post("/api/recipes/bulk-import", (req, res) => {
+  const { recipes: importedRecipes, strategy } = req.body;
+  if (!Array.isArray(importedRecipes)) {
+    return res.status(400).json({ success: false, error: "Invalid backup format - must be an array of recipes" });
+  }
+
+  if (strategy === "overwrite") {
+    recipes = [];
+  }
+
+  const added: Recipe[] = [];
+  importedRecipes.forEach((incoming) => {
+    if (!incoming.name || !incoming.ingredients || !incoming.instructions) {
+      return; // skip corrupted files
+    }
+
+    const newRecipe: Recipe = {
+      id: incoming.id ? incoming.id.toString() : (Date.now().toString() + Math.random().toString(36).substring(2, 7)),
+      name: incoming.name,
+      description: incoming.description || "A personalized handcrafted recipe designed with Cully.",
+      time: incoming.time || "30m",
+      rating: incoming.rating || parseFloat((4.5 + Math.random() * 0.5).toFixed(1)),
+      category: incoming.category || "Quick Meals",
+      image: incoming.image || matchBestImage(incoming.name),
+      ingredients: Array.isArray(incoming.ingredients) ? incoming.ingredients : [],
+      instructions: Array.isArray(incoming.instructions) ? incoming.instructions : [],
+      tags: Array.isArray(incoming.tags) ? incoming.tags : [],
+      meals: Array.isArray(incoming.meals) ? incoming.meals : ["solo"],
+      bookmarked: !!incoming.bookmarked
+    };
+
+    if (strategy === "append") {
+      const duplicateIndex = recipes.findIndex((r) => r.id === newRecipe.id || r.name.toLowerCase() === newRecipe.name.toLowerCase());
+      if (duplicateIndex === -1) {
+        recipes.push(newRecipe);
+        added.push(newRecipe);
+      }
+    } else {
+      recipes.push(newRecipe);
+      added.push(newRecipe);
+    }
+  });
+
+  res.json({ success: true, count: added.length, total: recipes.length, recipes });
+});
+
 // 5. Smart AI Generator using Gemini Key
 app.post("/api/recipes/ai-generate", async (req, res) => {
   const { ingredientsList, categoryOption } = req.body;

@@ -33,7 +33,11 @@ import {
   LogOut,
   Eye,
   EyeOff,
-  Save
+  Save,
+  Share2,
+  DatabaseBackup,
+  FileDown,
+  FileUp
 } from "lucide-react";
 import { Recipe, Ingredient, MealPlan, ShoppingItem, PantryItem, MealPlanDay } from "./types";
 
@@ -47,9 +51,9 @@ export default function App() {
   // Chef Workspace & Settings State
   const [chefName, setChefName] = useState("Angel Acosta");
   const [chefEmail, setChefEmail] = useState("angel@mrangelacosta.com");
-  const [chefTitle, setChefTitle] = useState("Executive Chef");
+  const [chefTitle, setChefTitle] = useState("Head Home Chef");
   const [chefUnitSystem, setChefUnitSystem] = useState<"Metric" | "Imperial">("Metric");
-  const [chefSubTab, setChefSubTab] = useState<"overview" | "profile" | "security" | "builds">("overview");
+  const [chefSubTab, setChefSubTab] = useState<"overview" | "profile" | "security" | "builds" | "backup">("overview");
   
   // Build Tracker & Progress History State
   const [buildLogs, setBuildLogs] = useState([
@@ -199,6 +203,20 @@ export default function App() {
   const [checkedIngredients, setCheckedIngredients] = useState<{ [key: string]: boolean }>({});
   const [focusedStepIndex, setFocusedStepIndex] = useState<number | null>(null);
   
+  // Share & Import State
+  const [showShareModal, setShowShareModal] = useState<Recipe | null>(null);
+  const [shareLink, setShareLink] = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [importingRecipe, setImportingRecipe] = useState<Recipe | null>(null);
+  const [importStatus, setImportStatus] = useState<"idle" | "importing" | "success" | "error">("idle");
+  const [importStatusMsg, setImportStatusMsg] = useState("");
+  
+  // Backup Import & Export State
+  const [backupClipboardJson, setBackupClipboardJson] = useState("");
+  const [backupStrategy, setBackupStrategy] = useState<"append" | "overwrite">("append");
+  const [backupStatus, setBackupStatus] = useState<{ type: "success" | "error" | ""; text: string }>({ type: "", text: "" });
+  const [backupDragOver, setBackupDragOver] = useState(false);
+  
   // Kitchen Timer State
   const [timerDuration, setTimerDuration] = useState<number>(0); // in seconds
   const [timerRemaining, setTimerRemaining] = useState<number>(0);
@@ -286,6 +304,21 @@ export default function App() {
 
   useEffect(() => {
     fetchRecipes();
+    
+    // Check for shared recipe import parameter in URL on mount
+    const queryParams = new URLSearchParams(window.location.search);
+    const importPayload = queryParams.get("import");
+    if (importPayload) {
+      try {
+        const decodedJson = decodeURIComponent(escape(atob(importPayload)));
+        const sharedRecipe: Recipe = JSON.parse(decodedJson);
+        if (sharedRecipe && sharedRecipe.name && sharedRecipe.ingredients) {
+          setImportingRecipe(sharedRecipe);
+        }
+      } catch (err) {
+        console.error("Failed to parse shared recipe from URL parameter", err);
+      }
+    }
   }, []);
 
   // Timer Countdown Tick
@@ -427,6 +460,178 @@ export default function App() {
     }
   };
 
+  // Recipe Sharing & Import Handlers
+  const handleShareRecipe = (recipe: Recipe) => {
+    try {
+      const payload = btoa(unescape(encodeURIComponent(JSON.stringify(recipe))));
+      const shareUrl = `${window.location.origin}${window.location.pathname}?import=${payload}`;
+      setShareLink(shareUrl);
+      setShowShareModal(recipe);
+      setCopiedLink(false);
+      
+      // Auto copy to clipboard if available
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareUrl)
+          .then(() => setCopiedLink(true))
+          .catch((err) => console.warn("Clipboard auto-write failed:", err));
+      }
+    } catch (err) {
+      console.error("Failed to generate share link", err);
+    }
+  };
+
+  const handleImportSharedRecipe = async () => {
+    if (!importingRecipe) return;
+    setImportStatus("importing");
+    setImportStatusMsg("Saving shared recipe to your Cully cookbook...");
+    setSyncState("syncing");
+    try {
+      const response = await fetch("/api/recipes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: importingRecipe.name,
+          description: importingRecipe.description,
+          time: importingRecipe.time,
+          category: importingRecipe.category,
+          ingredients: importingRecipe.ingredients,
+          instructions: importingRecipe.instructions,
+          tags: importingRecipe.tags || [],
+          image: importingRecipe.image || "",
+          meals: importingRecipe.meals || ["solo"]
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setRecipesList((prev) => [...prev, data.recipe]);
+        setImportStatus("success");
+        setImportStatusMsg(`🎉 "${importingRecipe.name}" has been successfully imported into your workspace collection!`);
+        setTimeout(() => {
+          setImportingRecipe(null);
+          setImportStatus("idle");
+          setImportStatusMsg("");
+          // Clear query params to prevent re-triggering on fresh loads
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }, 2200);
+      } else {
+        setImportStatus("error");
+        setImportStatusMsg("Import failure: " + (data.error || "Unknown response error"));
+      }
+    } catch (err) {
+      console.error(err);
+      setImportStatus("error");
+      setImportStatusMsg("Failed to communicate with cooking backend.");
+    } finally {
+      setTimeout(() => setSyncState("idle"), 800);
+    }
+  };
+
+  // --- COMPLETE CULLY BACKUP ENGINE ---
+  const handleExportRecipes = () => {
+    try {
+      if (!recipesList || recipesList.length === 0) {
+        setBackupStatus({ type: "error", text: "No recipes available in your active collection to back up." });
+        return;
+      }
+      
+      const backupData = JSON.stringify(recipesList, null, 2);
+      const blob = new Blob([backupData], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement("a");
+      const dateString = new Date().toISOString().split("T")[0];
+      link.href = url;
+      link.download = `cully-recipes-backup-${dateString}.json`;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setBackupStatus({ type: "success", text: `Success! Exported backup containing ${recipesList.length} recipes.` });
+      setTimeout(() => setBackupStatus({ type: "", text: "" }), 5000);
+    } catch (err: any) {
+      console.error("Export failed:", err);
+      setBackupStatus({ type: "error", text: "Export failure: " + (err.message || "Unknown error") });
+    }
+  };
+
+  const processImportedRecipes = async (rawJson: string) => {
+    setSyncState("syncing");
+    setBackupStatus({ type: "", text: "" });
+    try {
+      const parsed = JSON.parse(rawJson);
+      const dataArray = Array.isArray(parsed) ? parsed : (parsed.recipes && Array.isArray(parsed.recipes) ? parsed.recipes : null);
+      
+      if (!dataArray) {
+        throw new Error("Invalid format. Backup files must represent a list or array of recipes.");
+      }
+      
+      if (dataArray.length === 0) {
+        throw new Error("Target backup contains no recipe entries to import.");
+      }
+
+      const response = await fetch("/api/recipes/bulk-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipes: dataArray,
+          strategy: backupStrategy
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        setRecipesList(result.recipes);
+        setBackupStatus({ 
+          type: "success", 
+          text: `Grand Success! Successfully synchronized ${result.count} new recipes. Total active recipes: ${result.total}.` 
+        });
+        setBackupClipboardJson("");
+      } else {
+        throw new Error(result.error || "Server bulk loader failed.");
+      }
+    } catch (err: any) {
+      console.error("Import failed:", err);
+      setBackupStatus({ type: "error", text: `Import Failure: ${err.message || "Invalid JSON syntax detected."}` });
+    } finally {
+      setTimeout(() => setSyncState("idle"), 500);
+    }
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files ? e.target.files[0] : null;
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result;
+      if (typeof text === "string") {
+        await processImportedRecipes(text);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleBackupDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setBackupDragOver(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const text = event.target?.result;
+        if (typeof text === "string") {
+          await processImportedRecipes(text);
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
   // Delete Recipe
   const handleDeleteRecipe = async (id: string) => {
     if (!confirm("Are you sure you want to retire this recipe from Cully's collection?")) return;
@@ -451,13 +656,13 @@ export default function App() {
   const triggerAIGenerate = async () => {
     if (!aiIngredientsInput.trim()) return;
     setGeneratingAI(true);
-    setAiStatusMessage("Analyzing ingredient culinary metrics...");
+    setAiStatusMessage("Looking at available ingredients...");
     
     const statuses = [
-      "Consulting gourmet catalogs...",
-      "Structuring precision quantities (Cully)...",
-      "Formulating ideal roasting and kitchen instructions...",
-      "Simulating food plating layout..."
+      "Searching family recipe database...",
+      "Measuring out family portions...",
+      "Formulating easy, step-by-step instructions...",
+      "Perfecting the recipe details..."
     ];
 
     let checkIndex = 0;
@@ -480,11 +685,11 @@ export default function App() {
       const data = await response.json();
       if (data.success) {
         setRecipesList((prev) => [...prev, data.recipe]);
-        setFocusedRecipe(data.recipe); // Auto highlight generated masterpiece
+        setFocusedRecipe(data.recipe); // Auto highlight generated recipe
         setShowAIPanel(false);
         setAiIngredientsInput("");
       } else {
-        alert("Chef Gemini failed to process: " + data.error);
+        alert("Gemini failed to process: " + data.error);
       }
     } catch (err: any) {
       alert("Error: " + err.message);
@@ -540,7 +745,7 @@ export default function App() {
     if (presetType === "salmon") {
       setScannerInput(`Lemon Herb Roast Salmon
 prep total: 20m.
-gourmet standard
+family favorite
 Ingredients:
 - 2 Salmon Fillets (approx 150g each)
 - 1 organic fresh lemon slices
@@ -1016,11 +1221,11 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                 >
                   <div className="flex items-center gap-2">
                     <Sparkles className="text-[#fed01b]" />
-                    <h3 className="font-headline-md text-lg text-white font-bold">Chef Gemini AI Assembly</h3>
+                    <h3 className="font-headline-md text-lg text-white font-bold">Gemini Kitchen AI Assistant</h3>
                   </div>
                   
                   <p className="text-sm text-slate-300">
-                    Scribble or list what leftovers are remaining inside your crisper or pantry cabinet. Chef Gemini will craft a high-end gourmet culinary recipe.
+                    List whatever leftovers you have in your fridge, crisper, or pantry. Gemini will draft a delicious, cozy home recipe for you!
                   </p>
 
                   <div className="space-y-3">
@@ -1037,7 +1242,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
 
                   <div className="flex flex-col sm:flex-row gap-4 items-center justify-between pt-2">
                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <span className="text-xs font-mono text-slate-400 uppercase">Gourmet Category:</span>
+                      <span className="text-xs font-mono text-slate-400 uppercase">Recipe Category:</span>
                       <select 
                         value={aiSelectedCategory}
                         onChange={(e) => setAiSelectedCategory(e.target.value)}
@@ -1094,13 +1299,13 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
               {loadingRecipes ? (
                 <div className="flex flex-col justify-center items-center py-20 gap-3">
                   <span className="material-symbols-outlined text-3xl animate-spin text-slate-500">sync</span>
-                  <p className="text-sm text-slate-500 font-mono">Initializing gourmet database...</p>
+                  <p className="text-sm text-slate-500 font-mono">Loading family cookbook...</p>
                 </div>
               ) : filteredRecipes.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center space-y-3">
                   <BookOpen className="mx-auto text-slate-300" size={40} />
-                  <h4 className="font-headline-md text-slate-700">No Custom Culinary Craft Found</h4>
-                  <p className="text-xs text-slate-400 max-w-md mx-auto">Try broadening your active search bar parameters or customize leftovers using Chief Gemini.</p>
+                  <h4 className="font-headline-md text-slate-700">No Recipes Found</h4>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">Try broadening your search terms or generate a custom recipe from your leftovers using Gemini.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1149,6 +1354,16 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                                   <span className="text-slate-400">• {recipe.category}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleShareRecipe(recipe);
+                                    }}
+                                    className="p-2 hover:bg-white/10 rounded-full text-[#fed01b] transition-all"
+                                    title="Share Recipe"
+                                  >
+                                    <Share2 size={18} />
+                                  </button>
                                   <button
                                     onClick={(e) => toggleBookmark(e, recipe)}
                                     className="p-2 hover:bg-white/10 rounded-full transition-all text-[#fed01b]"
@@ -1204,6 +1419,16 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
 
                                 <div className="flex items-center gap-1">
                                   <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleShareRecipe(recipe);
+                                    }}
+                                    className="p-1.5 hover:bg-slate-100 rounded-full text-slate-450 hover:text-indigo-900 transition-all focus:outline-none"
+                                    title="Share Recipe"
+                                  >
+                                    <Share2 size={15} />
+                                  </button>
+                                  <button
                                     onClick={(e) => toggleBookmark(e, recipe)}
                                     className="p-1.5 hover:bg-slate-100 rounded-full text-slate-450 hover:text-amber-500 transition-all"
                                   >
@@ -1250,7 +1475,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-3xl font-bold tracking-tight text-[#091426]">Weekly Chef Planner</h2>
+                  <h2 className="text-3xl font-bold tracking-tight text-[#091426]">Family Weekly Menu Planner</h2>
                   <p className="text-sm text-slate-500 mt-1">Populate menu cycles. Ingredients automatically compile into shopping sheets.</p>
                 </div>
                 
@@ -1489,19 +1714,19 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-3xl font-bold tracking-tight text-[#091426]">Gourmet Provision Cart</h2>
-                  <p className="text-sm text-slate-500 mt-1">Compiled in real-time based on active scheduled planned cycles.</p>
+                  <h2 className="text-3xl font-bold tracking-tight text-[#091426]">Family Grocery & Shopping List</h2>
+                  <p className="text-sm text-slate-500 mt-1">Compiled automatically based on your weekly menu planner.</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
-                {/* Provision Shopping Items List */}
+                {/* Family Grocery Shopping Items List */}
                 <div className="lg:col-span-2 space-y-4">
                   <div className="bg-white p-6 rounded-2xl border border-slate-200">
                     
                     <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
-                      <span className="text-xs font-mono tracking-wider uppercase text-slate-500 font-bold">Materials required compile</span>
+                      <span className="text-xs font-mono tracking-wider uppercase text-slate-500 font-bold">Groceries to buy</span>
                       <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded font-mono font-bold">Qty: {getCompiledGroceries().length} items</span>
                     </div>
 
@@ -1578,7 +1803,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                 <div className="space-y-4">
                   <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-4">
                     <div>
-                      <h4 className="font-headline-md font-bold text-sm text-[#091426] uppercase tracking-wider">Chef Pantry Staples</h4>
+                      <h4 className="font-headline-md font-bold text-sm text-[#091426] uppercase tracking-wider">My Kitchen Staples</h4>
                       <p className="text-[11px] text-slate-400">Active staples stocked. Checking true automatically subtracts them from grocery compilations.</p>
                     </div>
 
@@ -1664,7 +1889,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                 <div className="flex border-b border-slate-200 bg-slate-50 overflow-x-auto scrollbar-none font-sans">
                   <button
                     onClick={() => setChefSubTab("overview")}
-                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap shrink-0 transition-all ${
                       chefSubTab === "overview"
                         ? "border-[#fed01b] bg-white text-slate-900"
                         : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
@@ -1675,36 +1900,47 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                   </button>
                   <button
                     onClick={() => setChefSubTab("profile")}
-                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap shrink-0 transition-all ${
                       chefSubTab === "profile"
                         ? "border-[#fed01b] bg-white text-slate-900"
                         : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
                     }`}
                   >
                     <Settings size={14} className={chefSubTab === "profile" ? "text-indigo-900" : "text-slate-400"} />
-                    Account Settings
+                    Settings
                   </button>
                   <button
                     onClick={() => setChefSubTab("security")}
-                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap shrink-0 transition-all ${
                       chefSubTab === "security"
                         ? "border-[#fed01b] bg-white text-slate-900"
                         : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
                     }`}
                   >
                     <Shield size={14} className={chefSubTab === "security" ? "text-indigo-900" : "text-slate-400"} />
-                    Security & Protection
+                    Security
                   </button>
                   <button
                     onClick={() => setChefSubTab("builds")}
-                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap shrink-0 transition-all ${
                       chefSubTab === "builds"
                         ? "border-[#fed01b] bg-white text-slate-900"
                         : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
                     }`}
                   >
                     <PackageCheck size={14} className={chefSubTab === "builds" ? "text-indigo-900" : "text-slate-400"} />
-                    Build Version & Progress
+                    Builds
+                  </button>
+                  <button
+                    onClick={() => setChefSubTab("backup")}
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap shrink-0 transition-all ${
+                      chefSubTab === "backup"
+                        ? "border-[#fed01b] bg-white text-slate-900"
+                        : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
+                    }`}
+                  >
+                    <DatabaseBackup size={14} className={chefSubTab === "backup" ? "text-indigo-900" : "text-slate-400"} />
+                    Backup & Restore
                   </button>
                 </div>
 
@@ -1758,7 +1994,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                               <span className="font-semibold text-slate-800">{chefName}</span>
                             </p>
                             <p className="flex justify-between border-b border-slate-100 pb-1.5">
-                              <span className="text-slate-400">Security Rank:</span>
+                              <span className="text-slate-400">Kitchen Role:</span>
                               <span className="text-indigo-900 font-semibold">{chefTitle}</span>
                             </p>
                             <p className="flex justify-between">
@@ -1813,7 +2049,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                           {/* Name Field */}
                           <div className="space-y-2">
                             <label className="block text-xs font-mono font-bold uppercase text-slate-500">
-                              Chef Full Name
+                              Your Full Name
                             </label>
                             <div className="relative">
                               <User className="absolute left-3 top-2.5 text-slate-400" size={16} />
@@ -1849,18 +2085,19 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                           {/* Chef Level Dropdown */}
                           <div className="space-y-2">
                             <label className="block text-xs font-mono font-bold uppercase text-slate-500">
-                              Culinary Rank / Kitchen Title
+                              Family Role / Kitchen Title
                             </label>
                             <select
                               value={chefTitle}
                               onChange={(e) => setChefTitle(e.target.value)}
                               className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
                             >
-                              <option value="Home Enthusiast & Collector">Home Enthusiast & Collector</option>
-                              <option value="Sous Chef de Cuisine">Sous Chef de Cuisine</option>
-                              <option value="Executive Chef">Executive Chef</option>
-                              <option value="Corporate Master Baker">Corporate Master Baker</option>
-                              <option value="Lead Plating Specialist">Lead Plating Specialist</option>
+                              <option value="Head Home Chef">Head Home Chef</option>
+                              <option value="Family Cook">Family Cook</option>
+                              <option value="Pantry Wizard & Planner">Pantry Wizard & Planner</option>
+                              <option value="Baking Enthusiast">Baking Enthusiast</option>
+                              <option value="Kitchen Helper & Taster">Kitchen Helper & Taster</option>
+                              <option value="Passionate Foodie">Passionate Foodie</option>
                             </select>
                           </div>
 
@@ -2132,7 +2369,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                         <div className="px-5 py-4 bg-slate-50 border-b border-slate-200/60 flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <Smartphone className="text-slate-500" size={16} />
-                            <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Logged-in Chef Sessions</h5>
+                            <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Logged-in Devices & Sessions</h5>
                           </div>
                           <span className="text-[10px] uppercase font-mono bg-[#fed01b]/20 border border-[#fed01b]/40 text-[#544101] px-2 py-0.5 rounded font-bold">
                             {chefSessions.length} Devices active
@@ -2367,6 +2604,218 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                     </motion.div>
                   )}
 
+                  {/* SUB-TAB 5: BACKUP / IMPORT & EXPORT */}
+                  {chefSubTab === "backup" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-6 lg:space-y-8 font-sans animate-fade-in"
+                    >
+                      {backupStatus.text && (
+                        <div className={`p-4 rounded-xl text-xs font-semibold flex items-center gap-2.5 border transition-all ${
+                          backupStatus.type === "success" 
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-800" 
+                            : "bg-red-50 border-red-200 text-red-800"
+                        }`}>
+                          <Check size={16} className={backupStatus.type === "success" ? "text-emerald-600" : "text-red-600"} />
+                          {backupStatus.text}
+                        </div>
+                      )}
+
+                      {/* Header Dashboard Block */}
+                      <div className="bg-[#091426] text-white p-6 rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-sm">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono tracking-widest font-bold uppercase text-[#fed01b] bg-indigo-950 px-2 py-0.5 rounded border border-indigo-500/30">
+                              Active Track: DATA PORTABILITY
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono font-bold uppercase">
+                              Offline-First Local Sync
+                            </span>
+                          </div>
+                          <h4 className="text-2xl font-bold tracking-tight">
+                            Recipe Database Backup Suite
+                          </h4>
+                          <p className="text-xs text-slate-300 leading-relaxed font-body-md max-w-xl">
+                            Export your entire digital cookbook to a standalone offline backup archive, or transplant another chef's database file to lock in your custom menus instantly.
+                          </p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-row md:flex-col items-center md:items-start justify-between md:justify-center gap-4 md:w-44 text-right md:text-left">
+                          <div>
+                            <span className="text-[9px] font-mono uppercase text-slate-400 block">Total Active Recipes</span>
+                            <span className="text-xl font-bold font-mono text-[#fed01b]">{recipesList.length} Recipes</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-mono uppercase text-slate-400 block">Backup Integrity</span>
+                            <span className="text-xs font-mono font-semibold text-emerald-400 flex items-center gap-1 justify-end md:justify-start">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Validated
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Import and Export Actions Box */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+                        {/* 1. EXPORT BLOCK */}
+                        <div className="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between space-y-6 shadow-xs hover:border-indigo-100 transition-all">
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 bg-indigo-50 rounded-xl text-indigo-900 border border-indigo-100">
+                                <FileDown size={20} />
+                              </div>
+                              <div>
+                                <h5 className="text-sm font-bold text-slate-800 tracking-tight leading-none">Export Database Backup</h5>
+                                <span className="text-[10px] font-mono text-slate-400 font-bold">Gen-II Cully Format (.json)</span>
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-600 leading-relaxed font-body-md pt-1">
+                              Download a complete copy of your recipes database. The exported file encapsulates all structured ingredients profiles, customized prep timers, descriptions, photo URLs, and categorization variables.
+                            </p>
+                          </div>
+
+                          <div className="bg-slate-50 border border-slate-150 rounded-xl p-3 space-y-2 text-xs">
+                            <div className="flex justify-between font-mono text-[10px] text-slate-500">
+                              <span>Cookbook Size:</span>
+                              <span className="font-semibold text-slate-700">{recipesList.length} items</span>
+                            </div>
+                            <div className="flex justify-between font-mono text-[10px] text-slate-500">
+                              <span>Estimated file size:</span>
+                              <span className="font-semibold text-slate-705">~{((JSON.stringify(recipesList) || "").length / 1024).toFixed(1)} KB</span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={handleExportRecipes}
+                            className="w-full bg-slate-900 hover:bg-[#091426] text-white text-xs font-mono uppercase tracking-widest py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer border-0"
+                          >
+                            <FileDown size={14} className="text-[#fed01b]" />
+                            Download Recipes Backup (.json)
+                          </button>
+                        </div>
+
+                        {/* 2. IMPORT SELECTOR Drag & Drop */}
+                        <div className="bg-white border border-slate-200 rounded-2xl p-6 flex flex-col justify-between space-y-6 shadow-xs hover:border-indigo-100 transition-all">
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 bg-amber-50 rounded-xl text-amber-800 border border-amber-100">
+                                <FileUp size={20} />
+                              </div>
+                              <div>
+                                <h5 className="text-sm font-bold text-slate-800 tracking-tight leading-none">Import Backup File</h5>
+                                <span className="text-[10px] font-mono text-slate-400 font-bold">Restore or Transplant Collection</span>
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-600 leading-relaxed font-body-md pt-1">
+                              Drop your `.json` backup file or choose it below to upload and synchronize recipes with your workspace. Choose your importing strategy first to either merge or wipe.
+                            </p>
+                          </div>
+
+                          {/* Strategy selector and file upload */}
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <label className="block text-[10px] font-mono font-bold uppercase text-slate-500">
+                                Import Merging Strategy
+                              </label>
+                              <div className="grid grid-cols-2 gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => setBackupStrategy("append")}
+                                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                                    backupStrategy === "append"
+                                      ? "border-[#fed01b] bg-amber-50/20 text-slate-800 font-bold"
+                                      : "border-slate-200 hover:bg-slate-55 bg-white text-slate-500"
+                                  }`}
+                                >
+                                  <span className="text-xs font-semibold block leading-tight">Append & Merge</span>
+                                  <span className="text-[9px] font-mono text-slate-400 block pt-0.5">Adds only non-duplicate recipes safely</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm("⚠️ WARNING: Setting to Overwrite will Completely WIPE your current recipes list on importing! Are you sure you prefer this strategy?")) {
+                                      setBackupStrategy("overwrite");
+                                    }
+                                  }}
+                                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                                    backupStrategy === "overwrite"
+                                      ? "border-red-500 bg-red-50/10 text-red-800 font-bold"
+                                      : "border-slate-200 hover:bg-slate-55 bg-white text-slate-500"
+                                  }`}
+                                >
+                                  <span className="text-xs font-semibold block leading-tight text-red-800">Clear & Overwrite</span>
+                                  <span className="text-[9px] font-mono text-slate-400 block pt-0.5">Clears all existing database recipes</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Drag n Drop Container */}
+                            <div
+                              onDragOver={(e) => { e.preventDefault(); setBackupDragOver(true); }}
+                              onDragLeave={() => setBackupDragOver(false)}
+                              onDrop={handleBackupDrop}
+                              className={`border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                                backupDragOver 
+                                  ? "border-indigo-650 bg-indigo-50/10 animate-pulse" 
+                                  : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
+                              }`}
+                            >
+                              <input
+                                type="file"
+                                id="backup-file-upload-standalone"
+                                accept=".json"
+                                onChange={handleImportFileChange}
+                                className="hidden"
+                              />
+                              <label htmlFor="backup-file-upload-standalone" className="cursor-pointer space-y-1 block">
+                                <DatabaseBackup size={24} className="mx-auto text-indigo-900 opacity-70" />
+                                <div className="text-xs font-semibold text-slate-700">
+                                  Drag & Drop or <span className="text-indigo-900 underline">Select File</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400">Accepts .json backup files generated by Cully</p>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Raw JSON paste tool */}
+                      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-4">
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono flex items-center gap-2">
+                            <FileText size={14} className="text-indigo-900" />
+                            Direct Raw JSON Paste Console
+                          </h5>
+                          <p className="text-[11px] text-slate-400 pt-0.5">
+                            Prefer copy-pasting JSON contents? Paste your raw text database export string below to parse and load it.
+                          </p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <textarea
+                            value={backupClipboardJson}
+                            onChange={(e) => setBackupClipboardJson(e.target.value)}
+                            placeholder='[&#13;&#10;  {&#13;&#10;    "name": "Heirloom Tomato Rigatoni",&#13;&#10;    "ingredients": [ ... ]&#13;&#10;  }&#13;&#10;]'
+                            className="w-full h-28 font-mono text-[11px] p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-900 bg-white placeholder-slate-350"
+                          />
+
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-mono text-slate-400">
+                              Characters: {backupClipboardJson.length} | Format: Array of Recipes
+                            </span>
+                            <button
+                              onClick={() => processImportedRecipes(backupClipboardJson)}
+                              disabled={!backupClipboardJson.trim()}
+                              className="bg-slate-900 hover:bg-slate-950 text-white text-[10px] font-mono uppercase tracking-widest px-5 py-2.5 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              <FileUp size={12} className="text-[#fed01b]" />
+                              Parse & Import String
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
                 </div>
               </div>
 
@@ -2404,7 +2853,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
           className={`flex flex-col items-center gap-1 text-[10px] uppercase font-semibold font-mono tracking-tighter ${activeTab === "groceries" ? "text-[#fed01b]" : "text-slate-400"}`}
         >
           <ShoppingCart size={16} />
-          Provision
+          Shopping
         </button>
         <button 
           onClick={() => setActiveTab("account")}
@@ -2575,6 +3024,14 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
 
                 <div className="flex gap-3">
                   <button 
+                    onClick={() => handleShareRecipe(focusedRecipe)}
+                    className="p-3 border border-slate-350 text-slate-500 hover:text-indigo-900 rounded-lg hover:bg-slate-100 transition-all flex items-center justify-center gap-1.5"
+                    title="Share Recipe Link"
+                  >
+                    <Share2 size={16} />
+                  </button>
+
+                  <button 
                     onClick={(e) => toggleBookmark(e, focusedRecipe)}
                     className="p-3 border border-slate-350 rounded-lg hover:bg-slate-100 transition-all"
                   >
@@ -2590,6 +3047,195 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                 </div>
               </div>
 
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* ======================= MODAL SHARE: GENERATED UNIQUE RECIPE LINK ======================= */}
+        {showShareModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[70] flex items-center justify-center p-6"
+            onClick={() => setShowShareModal(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden text-slate-800"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-[#091426] text-white p-6 relative">
+                <button 
+                  onClick={() => setShowShareModal(null)}
+                  className="absolute top-4 right-4 text-slate-400 hover:text-white font-mono text-lg font-bold"
+                >
+                  ✕
+                </button>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-950/50 rounded-lg border border-indigo-500/30">
+                    <Share2 size={20} className="text-[#fed01b]" />
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-[#fed01b]">Share Cookbook Recipe</span>
+                    <h3 className="font-headline-md font-bold text-base leading-tight">Recipe Sharing Assistant</h3>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-5">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-mono uppercase text-slate-400">Target Recipe</span>
+                  <p className="text-sm font-bold text-slate-800">{showShareModal.name}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-sm">{showShareModal.description}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-mono font-bold uppercase text-slate-500">
+                    Unique Shareable Link
+                  </label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={shareLink} 
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                      className="w-full border border-slate-200 bg-slate-50 rounded-lg p-2.5 text-xs font-mono focus:outline-none text-slate-700 select-all"
+                    />
+                    <button
+                      onClick={() => {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                          navigator.clipboard.writeText(shareLink);
+                        }
+                        setCopiedLink(true);
+                      }}
+                      className={`px-4 py-2.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer select-none whitespace-nowrap min-w-24 ${copiedLink ? "bg-emerald-600 text-white" : "bg-[#fed01b] hover:bg-amber-400 text-slate-900"}`}
+                    >
+                      {copiedLink ? "Copied!" : "Copy URL"}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal italic">
+                    Other chefs can open this link to import this exact menu, with measurements and steps, into their Cully workspace immediately.
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 flex gap-2.5 items-start">
+                  <Check size={14} className="text-emerald-600 mt-0.5 shrink-0" />
+                  <div className="text-[11px] text-slate-600 leading-relaxed font-sans mt-0.5">
+                    <span className="font-bold text-slate-800 block">Automatic Device Synchronization Enabled</span>
+                    This link encapsulates the full recipe details. No cloud registration is required for receivers to instantly parse it.
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button
+                    onClick={() => setShowShareModal(null)}
+                    className="bg-slate-900 text-white text-[10px] font-mono uppercase tracking-widest px-4 py-2 rounded-lg font-bold"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* ======================= MODAL IMPORT: RECEIVING A SHARED RECIPE ======================= */}
+        {importingRecipe && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[80] flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden text-slate-800"
+            >
+              <div className="bg-[#091426] text-white p-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-[#fed01b]/10 rounded-lg border border-[#fed01b]/30">
+                    <PackageCheck size={22} className="text-[#fed01b]" />
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-mono uppercase tracking-widest text-[#fed01b]">Shared Ingredient Card</span>
+                    <h3 className="font-headline-md font-bold text-base leading-tight">Cully Recipe Transporter Detected</h3>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-5">
+                {importStatusMsg && (
+                  <div className={`p-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 ${importStatus === "success" ? "bg-emerald-50 border border-emerald-200 text-emerald-800" : "bg-indigo-50 border border-indigo-200 text-indigo-900"}`}>
+                    <Check size={16} className={importStatus === "success" ? "text-emerald-600 animate-bounce" : "text-indigo-600 animate-spin"} />
+                    {importStatusMsg}
+                  </div>
+                )}
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
+                  <div className="aspect-video w-full bg-slate-900 relative">
+                    <img 
+                      alt={importingRecipe.name} 
+                      className="w-full h-full object-cover opacity-80" 
+                      src={importingRecipe.image || "https://lh3.googleusercontent.com/aida-public/AB6AXuDOR6cWFlAyNqU9NnfNb0OzT4fWoiIdTOuVR87sbNgDq_AvSoNGwonYBEZjeLnh9KP6rgHbIdJDC437aB7G2_frxuwfBuZGTB15Np4y5lRelbIkF7yBPLqo61XhUNfuf0FIXfW39f79tOlQDa8SD4p0KMYAgJO1GZ4h1T1x2P9qomac3JwOGQWgtpqovGpkiR7AO8ftAD1y5lvhynQpOxL4-gnDx9jzpm6EMNPJTzUZuPaXCENgdR6FRK86Q-MaatCKhyaeRxvV82PV"} 
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+                    <div className="absolute bottom-4 left-4 text-white">
+                      <span className="text-[9px] tracking-wider font-mono uppercase bg-amber-500 text-slate-900 font-bold px-2 py-0.5 rounded">{importingRecipe.category}</span>
+                      <h4 className="text-xl font-bold tracking-tight mt-1">{importingRecipe.name}</h4>
+                      <p className="text-[10px] text-slate-300 font-mono mt-0.5">Time to craft: {importingRecipe.time}</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    <p className="text-xs text-slate-600 leading-relaxed italic">"{importingRecipe.description}"</p>
+                    
+                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100 text-xs">
+                      <div>
+                        <span className="text-[9px] font-mono text-slate-400 block uppercase font-bold">Ingredients ({importingRecipe.ingredients.length})</span>
+                        <p className="text-slate-800 mt-1 font-semibold line-clamp-1">{importingRecipe.ingredients.map(i => i.name).join(", ")}</p>
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-mono text-slate-400 block uppercase font-bold">Execution Steps ({importingRecipe.instructions.length})</span>
+                        <p className="text-slate-800 mt-1 font-semibold">{importingRecipe.instructions.length} Technical steps</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-150 rounded-xl p-3 flex gap-2">
+                  <Info size={14} className="text-slate-500 mt-0.5 shrink-0" />
+                  <p className="text-[10px] text-slate-500 leading-normal">
+                    This recipe was shared from another kitchen using Cully. Click "Import Recipe" to lock it into your digital recipe collection permanently!
+                  </p>
+                </div>
+
+                <div className="flex justify-between items-center pt-3 border-t border-slate-100">
+                  <button
+                    onClick={() => {
+                      setImportingRecipe(null);
+                      // Clear URL parameters immediately so fresh reloads don't prompt again
+                      window.history.replaceState({}, document.title, window.location.pathname);
+                    }}
+                    className="px-5 py-2.5 border border-slate-350 text-slate-600 hover:text-slate-800 text-xs font-semibold uppercase tracking-wider rounded-lg font-mono transition-all"
+                  >
+                    Discard Link
+                  </button>
+
+                  <button
+                    onClick={handleImportSharedRecipe}
+                    disabled={importStatus === "importing" || importStatus === "success"}
+                    className="bg-[#fed01b] hover:bg-amber-400 text-slate-900 border border-[#6f5900] text-xs uppercase tracking-wider px-6 py-2.5 rounded-lg font-bold font-mono text-center flex items-center justify-center gap-2 transition-all disabled:opacity-55 disabled:cursor-not-allowed"
+                  >
+                    <PackageCheck size={14} className="text-indigo-900" />
+                    {importStatus === "importing" ? "Importing..." : importStatus === "success" ? "Success!" : "Import Recipe"}
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}

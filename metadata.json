@@ -1,0 +1,6 @@
+{
+  "name": "Cully",
+  "description": "A refined, technical-luxury digital cookbook, recipe organizer, and meal planner for chefs and passionate cooks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

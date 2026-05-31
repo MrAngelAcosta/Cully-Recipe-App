@@ -37,9 +37,12 @@ import {
   Share2,
   DatabaseBackup,
   FileDown,
-  FileUp
+  FileUp,
+  Archive
 } from "lucide-react";
 import { Recipe, Ingredient, MealPlan, ShoppingItem, PantryItem, MealPlanDay } from "./types";
+import JSZip from "jszip";
+import { parseRecipesFromHtml } from "./utils/recipeKeeperParser";
 
 // Base Category List
 const CATEGORIES = ["All Recipes", "Appetizers", "Baking", "Quick Meals", "Desserts"];
@@ -292,6 +295,12 @@ export default function App() {
   const [backupStrategy, setBackupStrategy] = useState<"append" | "overwrite">("append");
   const [backupStatus, setBackupStatus] = useState<{ type: "success" | "error" | ""; text: string }>({ type: "", text: "" });
   const [backupDragOver, setBackupDragOver] = useState(false);
+  
+  // Recipe Keeper ZIP Importer State
+  const [zipImporting, setZipImporting] = useState(false);
+  const [zipStatus, setZipStatus] = useState<{ type: "idle" | "loading" | "success" | "error"; text: string; count?: number }>({ type: "idle", text: "" });
+  const [zipRecipesPreview, setZipRecipesPreview] = useState<Recipe[]>([]);
+  const [zipDragOver, setZipDragOver] = useState(false);
   
   // Kitchen Timer State
   const [timerDuration, setTimerDuration] = useState<number>(0); // in seconds
@@ -834,6 +843,118 @@ export default function App() {
         }
       };
       reader.readAsText(file);
+    }
+  };
+
+  // --- Recipe Keeper ZIP Importer Handlers ---
+  const handleZipFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files ? e.target.files[0] : null;
+    if (!file) return;
+    await processZipFile(file);
+    e.target.value = "";
+  };
+
+  const handleZipDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setZipDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      await processZipFile(file);
+    }
+  };
+
+  const processZipFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      setZipStatus({ type: "error", text: "Please upload a valid .zip file containing recipes.html." });
+      return;
+    }
+
+    setZipImporting(true);
+    setZipStatus({ type: "loading", text: "Unzipping and compiling recipes archive..." });
+    setZipRecipesPreview([]);
+
+    try {
+      const zip = new JSZip();
+      const loadedZip = await zip.loadAsync(file);
+
+      // Find recipes.html inside the zip (resilient search)
+      const recipesHtmlPath = Object.keys(loadedZip.files).find(name => name.toLowerCase().endsWith("recipes.html"));
+      if (!recipesHtmlPath) {
+        throw new Error("Could not find 'recipes.html' inside the uploaded ZIP folder. Ensure it is a valid Recipe Keeper Pro backup export.");
+      }
+
+      const htmlText = await loadedZip.files[recipesHtmlPath].async("text");
+      const parsedRecipes = await parseRecipesFromHtml(htmlText, loadedZip);
+
+      if (parsedRecipes.length === 0) {
+        throw new Error("Parsed recipes.html successfully, but found zero recipes matching layout specifications. Please check file formatting.");
+      }
+
+      setZipRecipesPreview(parsedRecipes);
+      setZipStatus({
+        type: "success",
+        text: `Successfully parsed '${file.name}' archive! Found ${parsedRecipes.length} recipes ready for import.`,
+        count: parsedRecipes.length
+      });
+    } catch (err: any) {
+      console.error("ZIP import parser error:", err);
+      setZipStatus({ type: "error", text: "ZIP Parsing Failed: " + (err.message || "Unknown zip corruption") });
+    } finally {
+      setZipImporting(false);
+    }
+  };
+
+  const handleConfirmZipImport = async () => {
+    if (zipRecipesPreview.length === 0) return;
+    
+    setSyncState("syncing");
+    setZipImporting(true);
+    try {
+      const response = await fetch("/api/recipes/bulk-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipes: zipRecipesPreview,
+          strategy: backupStrategy
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        setRecipesList(result.recipes);
+        
+        // Dynamically register any new categories found in the imported recipes list
+        const uniqueImportedCategories = Array.from(new Set(zipRecipesPreview.map(r => r.category).filter(Boolean)));
+        setCategories((prev: string[]) => {
+          const next = [...prev];
+          uniqueImportedCategories.forEach(cat => {
+            const catStr = String(cat);
+            if (catStr && !next.some(c => String(c).toLowerCase() === catStr.toLowerCase())) {
+              next.push(catStr);
+            }
+          });
+          return next;
+        });
+
+        setBackupStatus({ 
+          type: "success", 
+          text: `Grand Success! Imported ${result.count} Recipe Keeper Pro recipes into your database. Total recipes: ${result.total}.` 
+        });
+        
+        setZipRecipesPreview([]);
+        setZipStatus({ type: "idle", text: "" });
+        
+        // Settle smoothly after import
+        setTimeout(() => setBackupStatus({ type: "", text: "" }), 6000);
+      } else {
+        throw new Error(result.error || "Server bulk loader failed.");
+      }
+    } catch (err: any) {
+      console.error("ZIP Confirmation failure:", err);
+      setBackupStatus({ type: "error", text: `Import Confirmation Failed: ${err.message}` });
+    } finally {
+      setZipImporting(false);
+      setSyncState("idle");
     }
   };
 
@@ -3200,6 +3321,128 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                                 <p className="text-[10px] text-slate-400">Accepts .json backup files generated by Cully</p>
                               </label>
                             </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Recipe Keeper Pro ZIP Importer */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-6 shadow-xs hover:border-indigo-150 transition-all">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                          <div className="flex items-start gap-3">
+                            <div className="p-2 bg-[#fed01b]/10 rounded-xl text-[#655301] border border-[#fed01b]/30">
+                              <Archive size={20} />
+                            </div>
+                            <div className="space-y-0.5">
+                              <span className="text-[9px] tracking-widest font-mono uppercase bg-[#fed01b] text-slate-900 font-bold px-2 py-0.5 rounded select-none">
+                                INTEGRATION KEY
+                              </span>
+                              <h5 className="text-sm font-bold text-slate-800 tracking-tight leading-none mt-1">Recipe Keeper Pro ZIP Importer</h5>
+                              <p className="text-[11px] text-slate-400">Import structured recipe HTML files and linked photos seamlessly</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md">
+                            Accepts .zip exports
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-slate-600 leading-relaxed font-body-md">
+                          Import your original <strong>Recipe Keeper Pro</strong> cookbook. Upload the exported <code>.zip</code> file containing <code>recipes.html</code> and the nested <code>images/</code> directory. All ingredients, directions, times, ratings, categories, and photos will be parsed, optimized, and saved directly to your Cully database!
+                        </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Drag and Drop Upload */}
+                          <div
+                            onDragOver={(e) => { e.preventDefault(); setZipDragOver(true); }}
+                            onDragLeave={() => setZipDragOver(false)}
+                            onDrop={handleZipDrop}
+                            className={`border-2 border-dashed rounded-xl p-6 text-center transition-all flex flex-col justify-center items-center ${
+                              zipDragOver 
+                                ? "border-[#fed01b] bg-amber-50/10 animate-pulse" 
+                                : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
+                            }`}
+                          >
+                            <input
+                              type="file"
+                              id="zip-recipe-keeper-upload"
+                              accept=".zip"
+                              onChange={handleZipFileChange}
+                              className="hidden"
+                            />
+                            <label htmlFor="zip-recipe-keeper-upload" className="cursor-pointer space-y-2 block w-full">
+                              <FileUp size={32} className="mx-auto text-indigo-950 opacity-60" />
+                              <div className="text-xs font-bold text-slate-700">
+                                Drag &amp; Drop ZIP File or <span className="text-indigo-900 underline font-semibold">Browse Local files</span>
+                              </div>
+                              <p className="text-[10px] text-slate-400">Standard folder zip containing recipes.html and images folder</p>
+                            </label>
+                          </div>
+
+                          {/* Status and Action Panel */}
+                          <div className="bg-slate-50 rounded-xl p-4 flex flex-col justify-between border border-slate-200">
+                            <div className="space-y-2">
+                              <span className="text-[8px] font-mono uppercase tracking-wider text-slate-400">Parser Output &amp; Diagnostics</span>
+                              
+                              {zipStatus.type === "idle" && (
+                                <p className="text-xs text-slate-400 italic pt-2">No archive uploaded yet. Drop a zip file to start parsing.</p>
+                              )}
+
+                              {zipStatus.type === "loading" && (
+                                <div className="space-y-2 pt-1">
+                                  <div className="flex items-center gap-2 text-xs font-mono font-semibold text-slate-600">
+                                    <RefreshCw size={12} className="animate-spin text-indigo-900" />
+                                    <span>{zipStatus.text}</span>
+                                  </div>
+                                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                    <div className="bg-indigo-905 h-full animate-progress" style={{ width: "80%" }}></div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {zipStatus.type === "error" && (
+                                <div className="bg-red-50 border border-red-150 text-red-800 p-2.5 rounded text-xs leading-relaxed font-semibold">
+                                  ⚠️ {zipStatus.text}
+                                </div>
+                              )}
+
+                              {zipStatus.type === "success" && (
+                                <div className="space-y-2">
+                                  <div className="bg-emerald-50 border border-emerald-150 text-emerald-800 p-2.5 rounded text-xs font-semibold flex items-start gap-1.5 leading-relaxed">
+                                    <Check size={14} className="text-emerald-600 mt-0.5 shrink-0" />
+                                    <span>{zipStatus.text}</span>
+                                  </div>
+                                  
+                                  {zipRecipesPreview.length > 0 && (
+                                    <div className="space-y-1">
+                                      <span className="text-[8px] font-mono uppercase tracking-wider text-slate-450">Recipes Preview</span>
+                                      <div className="max-h-24 overflow-y-auto border border-slate-200 rounded bg-white p-2 text-[10px] font-mono text-slate-600 space-y-1">
+                                        {zipRecipesPreview.slice(0, 10).map((r, i) => (
+                                          <div key={i} className="flex justify-between items-center bg-slate-50 px-1.5 py-0.5 rounded leading-tight">
+                                            <span className="truncate max-w-[130px] font-bold text-slate-800">{r.name}</span>
+                                            <span className="text-[9px] text-[#231b00] font-bold bg-[#fed01b]/20 px-1 rounded uppercase tracking-tighter shrink-0">{r.category}</span>
+                                          </div>
+                                        ))}
+                                        {zipRecipesPreview.length > 10 && (
+                                          <div className="text-center text-[9px] text-slate-450 font-semibold pt-1">
+                                            + {zipRecipesPreview.length - 10} more recipes extracted...
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {zipRecipesPreview.length > 0 && (
+                              <button
+                                onClick={handleConfirmZipImport}
+                                disabled={zipImporting}
+                                className="w-full mt-4 bg-slate-900 hover:bg-[#091426] text-white text-xs font-mono uppercase tracking-widest py-2.5 rounded-lg font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer border-0"
+                              >
+                                <Check size={12} className="text-[#fed01b]" />
+                                Save {zipRecipesPreview.length} Recipes to Cookbook
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>

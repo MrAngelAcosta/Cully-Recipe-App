@@ -23,7 +23,17 @@ import {
   FileCode,
   PackageCheck,
   ChevronRight,
-  Info
+  Info,
+  Shield,
+  Lock,
+  Settings,
+  Smartphone,
+  Key,
+  RefreshCw,
+  LogOut,
+  Eye,
+  EyeOff,
+  Save
 } from "lucide-react";
 import { Recipe, Ingredient, MealPlan, ShoppingItem, PantryItem, MealPlanDay } from "./types";
 
@@ -33,6 +43,66 @@ const CATEGORIES = ["All Recipes", "Appetizers", "Baking", "Quick Meals", "Desse
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<"recipes" | "planner" | "scanner" | "groceries" | "account">("recipes");
+
+  // Chef Workspace & Settings State
+  const [chefName, setChefName] = useState("Angel Acosta");
+  const [chefEmail, setChefEmail] = useState("angel@mrangelacosta.com");
+  const [chefTitle, setChefTitle] = useState("Executive Chef");
+  const [chefUnitSystem, setChefUnitSystem] = useState<"Metric" | "Imperial">("Metric");
+  const [chefSubTab, setChefSubTab] = useState<"overview" | "profile" | "security">("overview");
+  
+  // Security State
+  const [chefSecurity2FA, setChefSecurity2FA] = useState<boolean>(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordStatusMsg, setPasswordStatusMsg] = useState<{ type: "success" | "error" | ""; text: string }>({ type: "", text: "" });
+  const [showPasswordFields, setShowPasswordFields] = useState(false);
+  const [apiSecretKey, setApiSecretKey] = useState("sk-cully-••••••••••••••••3d9f");
+  const [showApiKey, setShowApiKey] = useState(false);
+  
+  // Active Sessions State
+  const [chefSessions, setChefSessions] = useState([
+    { id: "s1", device: "Desktop Chrome (This Device)", os: "macOS 15.4", location: "Miami, FL", ip: "108.162.2.45", active: true },
+    { id: "s2", device: "iPad Pro", os: "iOS 18.2", location: "Miami, FL", ip: "172.56.24.112", active: false, lastActive: "Just now" },
+    { id: "s3", device: "iPhone 16 Pro Max", os: "iOS 18.2", location: "Miami, FL", ip: "172.56.24.114", active: false, lastActive: "2 hours ago" },
+  ]);
+
+  const [profileNotification, setProfileNotification] = useState("");
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileNotification("Profile changes saved successfully!");
+    setTimeout(() => {
+      setProfileNotification("");
+    }, 4500);
+  };
+
+  const handlePasswordUpdate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword) {
+      setPasswordStatusMsg({ type: "error", text: "Current password is required." });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordStatusMsg({ type: "error", text: "New password must be at least 6 characters." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordStatusMsg({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+    setPasswordStatusMsg({ type: "success", text: "Security credentials updated successfully!" });
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setTimeout(() => {
+      setPasswordStatusMsg({ type: "", text: "" });
+    }, 5000);
+  };
+
+  const revokeSession = (id: string) => {
+    setChefSessions(chefSessions.filter(s => s.id !== id));
+  };
   
   // Database State
   const [recipesList, setRecipesList] = useState<Recipe[]>([]);
@@ -1498,8 +1568,11 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                       />
                     </div>
                     <div className="space-y-1">
-                      <h3 className="text-2xl font-bold text-white tracking-tight leading-none">Angel Acosta</h3>
-                      <p className="text-sm text-slate-300 font-mono select-all">angel@mrangelacosta.com</p>
+                      <h3 className="text-2xl font-bold text-white tracking-tight leading-none">{chefName}</h3>
+                      <p className="text-sm text-slate-300 font-mono select-all">{chefEmail}</p>
+                      <span className="inline-block mt-1 bg-indigo-900/40 text-[#fed01b] text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded border border-indigo-500/30">
+                        {chefTitle}
+                      </span>
                     </div>
                   </div>
 
@@ -1509,41 +1582,521 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                   </div>
                 </div>
 
-                {/* Profile Details layout */}
-                <div className="px-6 py-6 relative">
-                  {/* Active Metrics Bento Row */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-[#f2f4f6] p-4 rounded-xl text-center space-y-1 border border-slate-200">
-                      <BookOpen className="text-indigo-900 mx-auto" size={18} />
-                      <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Active Recipes</span>
-                      <span className="text-lg font-bold text-[#091426]">{recipesList.length} Items</span>
-                    </div>
+                {/* Account Dashboard Tabs */}
+                <div className="flex border-b border-slate-200 bg-slate-50 overflow-x-auto scrollbar-none">
+                  <button
+                    onClick={() => setChefSubTab("overview")}
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                      chefSubTab === "overview"
+                        ? "border-[#fed01b] bg-white text-slate-900"
+                        : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
+                    }`}
+                  >
+                    <BookOpen size={14} className={chefSubTab === "overview" ? "text-indigo-900" : "text-slate-400"} />
+                    Overview
+                  </button>
+                  <button
+                    onClick={() => setChefSubTab("profile")}
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                      chefSubTab === "profile"
+                        ? "border-[#fed01b] bg-white text-slate-900"
+                        : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
+                    }`}
+                  >
+                    <Settings size={14} className={chefSubTab === "profile" ? "text-indigo-900" : "text-slate-400"} />
+                    Account Settings
+                  </button>
+                  <button
+                    onClick={() => setChefSubTab("security")}
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                      chefSubTab === "security"
+                        ? "border-[#fed01b] bg-white text-slate-900"
+                        : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
+                    }`}
+                  >
+                    <Shield size={14} className={chefSubTab === "security" ? "text-indigo-900" : "text-slate-400"} />
+                    Security & Protection
+                  </button>
+                </div>
 
-                    <div className="bg-[#f2f4f6] p-4 rounded-xl text-center space-y-1 border border-slate-200">
-                      <Bookmark className="text-amber-600 mx-auto fill-current" size={18} />
-                      <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Saved Bookmarks</span>
-                      <span className="text-lg font-bold text-[#091426]">{recipesList.filter(r => r.bookmarked).length} Recipes</span>
-                    </div>
+                {/* Tab content area */}
+                <div className="p-6">
+                  
+                  {/* SUB-TAB 1: OVERVIEW */}
+                  {chefSubTab === "overview" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-6"
+                    >
+                      {/* Active Metrics Bento Row */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-[#f8fafc] p-4 rounded-xl text-center space-y-1 border border-slate-200">
+                          <BookOpen className="text-indigo-900 mx-auto" size={18} />
+                          <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Active Recipes</span>
+                          <span className="text-lg font-bold text-[#091426]">{recipesList.length} Items</span>
+                        </div>
 
-                    <div className="bg-[#f2f4f6] p-4 rounded-xl text-center space-y-1 border border-slate-200">
-                      <Calendar className="text-emerald-800 mx-auto" size={18} />
-                      <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Planned Cycles</span>
-                      <span className="text-lg font-bold text-[#091426]">{getPlannedMealsCount()} Weekly</span>
-                    </div>
+                        <div className="bg-[#f8fafc] p-4 rounded-xl text-center space-y-1 border border-slate-200">
+                          <Bookmark className="text-[#fed01b] mx-auto fill-current" size={18} />
+                          <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Saved Bookmarks</span>
+                          <span className="text-lg font-bold text-[#091426]">{recipesList.filter(r => r.bookmarked).length} Recipes</span>
+                        </div>
 
-                    <div className="bg-[#f2f4f6] p-4 rounded-xl text-center space-y-1 border border-slate-200">
-                      <Clock className="text-orange-850 mx-auto" size={18} />
-                      <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Timers linked</span>
-                      <span className="text-lg font-bold text-[#091426]">{timerDuration > 0 ? "1 Active" : "0 Standby"}</span>
-                    </div>
-                  </div>
+                        <div className="bg-[#f8fafc] p-4 rounded-xl text-center space-y-1 border border-slate-200">
+                          <Calendar className="text-emerald-800 mx-auto" size={18} />
+                          <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Planned Cycles</span>
+                          <span className="text-lg font-bold text-[#091426]">{getPlannedMealsCount()} Weekly</span>
+                        </div>
 
-                  <div className="mt-6 border-t border-slate-100 pt-6 space-y-4">
-                    <h4 className="font-headline-md font-bold text-sm text-[#091426] uppercase tracking-wider">Cully Digital License</h4>
-                    <p className="text-xs text-slate-500 leading-relaxed font-body-md bg-opacity-10">
-                      This system leverages **Cully** principles of kitchen management. It coordinates data sync states, aggregates groceries from recipes, links active cooking checkmarks to timer processes, and processes raw unstructured scribbles directly via Gemini AI pipelines.
-                    </p>
-                  </div>
+                        <div className="bg-[#f8fafc] p-4 rounded-xl text-center space-y-1 border border-slate-200">
+                          <Clock className="text-orange-600 mx-auto" size={18} />
+                          <span className="text-[10px] uppercase font-mono text-slate-400 block pt-1">Timers linked</span>
+                          <span className="text-lg font-bold text-[#091426]">{timerDuration > 0 ? "1 Active" : "0 Standby"}</span>
+                        </div>
+                      </div>
+
+                      {/* Info block */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
+                        <div className="flex items-center gap-2.5 text-slate-800 font-semibold text-sm">
+                          <Smartphone size={16} className="text-indigo-900" />
+                          <span>System & Session Core Status</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-slate-600">
+                          <div className="space-y-2 bg-white p-3 rounded-lg border border-slate-150">
+                            <p className="flex justify-between border-b border-slate-100 pb-1.5">
+                              <span className="text-slate-400">Account Owner:</span>
+                              <span className="font-semibold text-slate-800">{chefName}</span>
+                            </p>
+                            <p className="flex justify-between border-b border-slate-100 pb-1.5">
+                              <span className="text-slate-400">Security Rank:</span>
+                              <span className="text-indigo-900 font-semibold">{chefTitle}</span>
+                            </p>
+                            <p className="flex justify-between">
+                              <span className="text-slate-400">Preferred Unit System:</span>
+                              <span className="text-slate-800 font-semibold">{chefUnitSystem}</span>
+                            </p>
+                          </div>
+                          <div className="space-y-2 bg-white p-3 rounded-lg border border-slate-150">
+                            <p className="flex justify-between border-b border-slate-100 pb-1.5">
+                              <span className="text-slate-400">Authentication Mode:</span>
+                              <span className="text-emerald-600 font-semibold">Cully-OAuth Link</span>
+                            </p>
+                            <p className="flex justify-between border-b border-slate-100 pb-1.5">
+                              <span className="text-slate-400">Two-Factor Status:</span>
+                              <span className={chefSecurity2FA ? "text-emerald-600 font-semibold" : "text-amber-600 font-semibold"}>
+                                {chefSecurity2FA ? "Enabled (2FA)" : "Disabled"}
+                              </span>
+                            </p>
+                            <p className="flex justify-between">
+                              <span className="text-slate-400">Device Registrations:</span>
+                              <span className="text-slate-800 font-semibold">{chefSessions.length} active sessions</span>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-slate-100 pt-5 space-y-3">
+                        <h4 className="font-headline-md font-bold text-sm text-[#091426] uppercase tracking-wider">Cully Digital License</h4>
+                        <p className="text-xs text-slate-500 leading-relaxed font-body-md bg-opacity-10">
+                          This system leverages **Cully** principles of kitchen management. It coordinates data sync states, aggregates groceries from recipes, links active cooking checkmarks to timer processes, and processes raw unstructured scribbles directly via Gemini AI pipelines.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* SUB-TAB 2: PROFILE/ACCOUNT SETTINGS */}
+                  {chefSubTab === "profile" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-6"
+                    >
+                      {profileNotification && (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-xs font-medium flex items-center gap-2">
+                          <Check size={16} className="text-emerald-600" />
+                          {profileNotification}
+                        </div>
+                      )}
+
+                      <form onSubmit={handleSaveProfile} className="space-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Name Field */}
+                          <div className="space-y-2">
+                            <label className="block text-xs font-mono font-bold uppercase text-slate-500">
+                              Chef Full Name
+                            </label>
+                            <div className="relative">
+                              <User className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                              <input
+                                type="text"
+                                value={chefName}
+                                onChange={(e) => setChefName(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          {/* Email Field */}
+                          <div className="space-y-2">
+                            <label className="block text-xs font-mono font-bold uppercase text-slate-500">
+                              Contact Email Address
+                            </label>
+                            <div className="relative">
+                              <FileText className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                              <input
+                                type="email"
+                                value={chefEmail}
+                                onChange={(e) => setChefEmail(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
+                                required
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Chef Level Dropdown */}
+                          <div className="space-y-2">
+                            <label className="block text-xs font-mono font-bold uppercase text-slate-500">
+                              Culinary Rank / Kitchen Title
+                            </label>
+                            <select
+                              value={chefTitle}
+                              onChange={(e) => setChefTitle(e.target.value)}
+                              className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
+                            >
+                              <option value="Home Enthusiast & Collector">Home Enthusiast & Collector</option>
+                              <option value="Sous Chef de Cuisine">Sous Chef de Cuisine</option>
+                              <option value="Executive Chef">Executive Chef</option>
+                              <option value="Corporate Master Baker">Corporate Master Baker</option>
+                              <option value="Lead Plating Specialist">Lead Plating Specialist</option>
+                            </select>
+                          </div>
+
+                          {/* Units Selector */}
+                          <div className="space-y-2">
+                            <label className="block text-xs font-mono font-bold uppercase text-slate-500">
+                              Culinary Metric System
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setChefUnitSystem("Metric")}
+                                className={`px-4 py-2 border text-xs font-mono font-bold rounded-lg uppercase tracking-wider transition-all ${
+                                  chefUnitSystem === "Metric"
+                                    ? "bg-slate-900 border-slate-900 text-white"
+                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                Metric (g / ml)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setChefUnitSystem("Imperial")}
+                                className={`px-4 py-2 border text-xs font-mono font-bold rounded-lg uppercase tracking-wider transition-all ${
+                                  chefUnitSystem === "Imperial"
+                                    ? "bg-slate-900 border-slate-900 text-white"
+                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                Imperial (oz / lbs / tsp)
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Interactive Toggles */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3.5">
+                          <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                            <div>
+                              <p className="text-xs font-bold text-slate-800">Cully intelligent auto-pantry subtraction?</p>
+                              <p className="text-[11px] text-slate-500">Automatically subtract aggregate list quantities if items match pantry basics.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {}}
+                              className="w-10 h-6 rounded-full bg-emerald-600 p-1 flex items-center justify-end transition-all"
+                            >
+                              <span className="w-4 h-4 rounded-full bg-white block"></span>
+                            </button>
+                          </div>
+
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <p className="text-xs font-bold text-slate-800">Assistive sensory speech cues?</p>
+                              <p className="text-[11px] text-slate-500">Activate auditory sounds when counting timers reach critical thresholds.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {}}
+                              className="w-10 h-6 rounded-full bg-slate-300 p-1 flex items-center justify-start transition-all"
+                            >
+                              <span className="w-4 h-4 rounded-full bg-white block"></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Submit button */}
+                        <button
+                          type="submit"
+                          className="w-full bg-[#091426] text-white hover:bg-indigo-950 px-4 py-2.5 text-xs font-mono font-bold uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                        >
+                          <Save size={14} className="text-[#fed01b]" />
+                          Save Workspace Changes
+                        </button>
+                      </form>
+                    </motion.div>
+                  )}
+
+                  {/* SUB-TAB 3: SECURITY & ACCESSIBILITY OPTIONS */}
+                  {chefSubTab === "security" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-6"
+                    >
+                      {/* Password Settings section */}
+                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <button 
+                          onClick={() => setShowPasswordFields(!showPasswordFields)}
+                          className="w-full px-5 py-4 bg-slate-50 hover:bg-slate-100/50 flex items-center justify-between border-b border-slate-100 transition-all font-sans"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Lock size={16} className="text-indigo-900" />
+                            <div className="text-left">
+                              <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Password Security credentials</h5>
+                              <p className="text-[11px] text-slate-500">Edit your credentials or update login credentials</p>
+                            </div>
+                          </div>
+                          <span className="text-xs font-mono text-indigo-900 font-bold hover:underline">
+                            {showPasswordFields ? "Hide" : "Manage"}
+                          </span>
+                        </button>
+
+                        <AnimatePresence>
+                          {showPasswordFields && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="overflow-hidden"
+                            >
+                              <form onSubmit={handlePasswordUpdate} className="p-5 space-y-4 border-t border-slate-100">
+                                {passwordStatusMsg.text && (
+                                  <div className={`px-4 py-3 rounded-lg text-xs font-medium ${
+                                    passwordStatusMsg.type === "success" 
+                                      ? "bg-emerald-50 border border-emerald-200 text-emerald-800" 
+                                      : "bg-red-50 border border-red-200 text-red-800"
+                                  }`}>
+                                    {passwordStatusMsg.text}
+                                  </div>
+                                )}
+
+                                <div className="space-y-3">
+                                  <div>
+                                    <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 mb-1">
+                                      Current Password
+                                    </label>
+                                    <input
+                                      type="password"
+                                      value={currentPassword}
+                                      onChange={(e) => setCurrentPassword(e.target.value)}
+                                      placeholder="••••••••"
+                                      className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900"
+                                    />
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 mb-1">
+                                        New Password (6+ chars)
+                                      </label>
+                                      <input
+                                        type="password"
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 mb-1">
+                                        Confirm Partner Password
+                                      </label>
+                                      <input
+                                        type="password"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="submit"
+                                  className="bg-indigo-900 hover:bg-slate-900 text-white text-[11px] font-mono uppercase tracking-widest px-4 py-2 rounded-lg font-bold transition-all shadow-sm"
+                                >
+                                  Update Security Code
+                                </button>
+                              </form>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      {/* 2FA Section */}
+                      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-2.5">
+                            <Smartphone className="text-orange-500 mt-0.5" size={18} />
+                            <div>
+                              <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Two-Factor Authentication (2FA)</h5>
+                              <p className="text-[11px] text-slate-500 max-w-md">Secure your Cully workspace sessions by requiring an authenticator code on every device login attempt.</p>
+                            </div>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => setChefSecurity2FA(!chefSecurity2FA)}
+                            className={`w-12 h-6 px-1 rounded-full flex items-center transition-all ${
+                              chefSecurity2FA ? "bg-emerald-600 justify-end" : "bg-slate-300 justify-start"
+                            }`}
+                          >
+                            <span className="w-4 h-4 rounded-full bg-white shadow block"></span>
+                          </button>
+                        </div>
+
+                        {/* Interactive 2FA Modal Expansion */}
+                        {chefSecurity2FA && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-slate-50 border border-slate-250 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4"
+                          >
+                            <div className="flex flex-col items-center justify-center p-3 bg-white border border-slate-200 rounded-lg">
+                              {/* Simulated QR Code */}
+                              <div className="w-24 h-24 bg-slate-100 border border-slate-300 p-1 rounded flex items-center justify-center relative select-none">
+                                <div className="grid grid-cols-5 gap-0.5 text-[#091426] font-mono text-[8px] leading-tight select-none">
+                                  <span>⬛⬜⬛⬜⬛</span>
+                                  <span>⬜⬛⬜⬛⬜</span>
+                                  <span>⬛⬜⬛⬜⬛</span>
+                                  <span>⬜⬛⬜⬛⬜</span>
+                                  <span>⬛⬜⬛⬜⬛</span>
+                                </div>
+                                <span className="absolute bottom-1 right-1 text-[7px] font-mono font-bold bg-[#fed01b] text-slate-950 px-1 rounded">2FA SCAN</span>
+                              </div>
+                              <span className="text-[10px] font-mono uppercase text-slate-400 mt-2">Scan with Authenticator</span>
+                            </div>
+
+                            <div className="md:col-span-2 space-y-2.5 text-xs text-slate-600">
+                              <p className="font-semibold text-slate-800">Cully-2FA setup details:</p>
+                              <div>
+                                <span className="block text-[10px] font-mono text-slate-400">Manual Key Code:</span>
+                                <code className="block bg-white border border-slate-200 rounded p-1.5 text-xs text-indigo-900 font-bold select-all">
+                                  CULLY-NGA-ACOSTA-SMART-2026-KEY
+                                </code>
+                              </div>
+                              <div className="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-900 leading-relaxed font-body-md">
+                                <span className="font-bold block uppercase font-mono text-[9px] mb-0.5 text-amber-950">Security Notice:</span>
+                                Copy this backup reference securely. If you change your sensory phone device, this setup remains mandatory.
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </div>
+
+                      {/* Workspace API keys */}
+                      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-2.5">
+                            <Key className="text-indigo-900 mt-0.5" size={18} />
+                            <div>
+                              <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Cully Pipeline access token</h5>
+                              <p className="text-[11px] text-slate-500">Provide keys to allow secondary scrapers or external scanners to query your inventory.</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center justify-between gap-4 font-mono">
+                          <div className="truncate text-xs">
+                            <span className="text-slate-400 mr-2">Token API_KEY:</span>
+                            <code className="text-slate-800 font-bold">
+                              {showApiKey ? "sk-cully-9f8e7d6c5b4a3a2a19803d9f" : apiSecretKey}
+                            </code>
+                          </div>
+                          <button
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="bg-white border border-slate-200 p-1.5 rounded hover:bg-slate-50 text-slate-600 flex-shrink-0"
+                            title={showApiKey ? "Hide Key" : "Show Key"}
+                          >
+                            {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Active Sessions list */}
+                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="px-5 py-4 bg-slate-50 border-b border-slate-200/60 flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <Smartphone className="text-slate-500" size={16} />
+                            <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Logged-in Chef Sessions</h5>
+                          </div>
+                          <span className="text-[10px] uppercase font-mono bg-[#fed01b]/20 border border-[#fed01b]/40 text-[#544101] px-2 py-0.5 rounded font-bold">
+                            {chefSessions.length} Devices active
+                          </span>
+                        </div>
+
+                        <div className="divide-y divide-slate-100 p-1 bg-white">
+                          <AnimatePresence>
+                            {chefSessions.map((session) => (
+                              <motion.div
+                                key={session.id}
+                                exit={{ opacity: 0, x: -30 }}
+                                transition={{ duration: 0.15 }}
+                                className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+                              >
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-800">{session.device}</span>
+                                    {session.active ? (
+                                      <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.2 font-bold font-mono uppercase">
+                                        Active Now
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.2 font-mono uppercase">
+                                        Last Used: {session.lastActive}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 font-mono">
+                                    OS: {session.os} • IP: {session.ip} • Region: {session.location}
+                                  </div>
+                                </div>
+
+                                {!session.active && (
+                                  <button
+                                    onClick={() => revokeSession(session.id)}
+                                    className="self-start md:self-auto bg-white border border-slate-200 hover:border-red-300 hover:text-red-500 hover:bg-red-50/20 text-slate-500 px-3 py-1 text-[10px] font-mono font-bold uppercase tracking-wider rounded transition-all cursor-pointer"
+                                  >
+                                    Revoke Session
+                                  </button>
+                                )}
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                          {chefSessions.length === 1 && (
+                            <p className="p-4 text-center text-[11px] text-slate-400 font-mono italic">
+                              No additional devices connected. Only this browser is online.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
 
                 </div>
               </div>

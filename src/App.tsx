@@ -308,7 +308,7 @@ export default function App() {
     
     const statuses = [
       "Consulting gourmet catalogs...",
-      "Structuring precision quantities (Mise en Place)...",
+      "Structuring precision quantities (Cully)...",
       "Formulating ideal roasting and kitchen instructions...",
       "Simulating food plating layout..."
     ];
@@ -635,7 +635,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
             sync
           </span>
           <h1 className="font-headline-lg-mobile text-lg md:text-xl tracking-tight uppercase font-bold text-white md:hidden">CULLY</h1>
-          <span className="hidden md:inline-block text-xs font-mono tracking-widest text-slate-400">MISE EN PLACE SYSTEM ONLINE</span>
+          <span className="hidden md:inline-block text-xs font-mono tracking-widest text-slate-400">CULLY SYSTEM ONLINE</span>
         </div>
 
         {/* Sync / Loader state indicators & Chef Profile Avatar */}
@@ -1226,7 +1226,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3">
                 <Info className="text-[#735c00] flex-shrink-0 mt-0.5" size={16} />
                 <div className="text-xs text-amber-900 space-y-1 font-body-md">
-                  <p className="font-semibold">Mise en Place Engine Active:</p>
+                  <p className="font-semibold">Cully Engine Active:</p>
                   <p>Adding/scheduling recipes dynamically aggregates all necessary raw material metrics on the **Grocery Cart** tab. It checks matching pantry staples (e.g. olive oil, water, salts) and automatically subtracts them from the listing to minimize double buying.</p>
                 </div>
               </div>
@@ -1499,7 +1499,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                     </div>
                     <div className="space-y-1">
                       <h3 className="text-2xl font-bold text-white tracking-tight leading-none">Angel Acosta</h3>
-                      <p className="text-sm text-slate-300 font-mono select-all">Mr.AngelAcosta@gmail.com</p>
+                      <p className="text-sm text-slate-300 font-mono select-all">angel@mrangelacosta.com</p>
                     </div>
                   </div>
 
@@ -1541,7 +1541,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                   <div className="mt-6 border-t border-slate-100 pt-6 space-y-4">
                     <h4 className="font-headline-md font-bold text-sm text-[#091426] uppercase tracking-wider">Cully Digital License</h4>
                     <p className="text-xs text-slate-500 leading-relaxed font-body-md bg-opacity-10">
-                      This system leverages **Mise en Place** principles of kitchen management. It coordinates data sync states, aggregates groceries from recipes, links active cooking checkmarks to timer processes, and processes raw unstructured scribbles directly via Gemini AI pipelines.
+                      This system leverages **Cully** principles of kitchen management. It coordinates data sync states, aggregates groceries from recipes, links active cooking checkmarks to timer processes, and processes raw unstructured scribbles directly via Gemini AI pipelines.
                     </p>
                   </div>
 
@@ -1658,7 +1658,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                   {/* Ingredients Checklist Pane */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                      <h4 className="font-headline-md font-bold text-sm text-[#091426] uppercase">Mise en Place Checklist</h4>
+                      <h4 className="font-headline-md font-bold text-sm text-[#091426] uppercase">Cully Checklist</h4>
                       <button 
                         onClick={() => setCheckedIngredients({})}
                         className="text-[10px] font-mono uppercase tracking-wider text-slate-400 hover:text-red-500"

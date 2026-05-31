@@ -49,7 +49,49 @@ export default function App() {
   const [chefEmail, setChefEmail] = useState("angel@mrangelacosta.com");
   const [chefTitle, setChefTitle] = useState("Executive Chef");
   const [chefUnitSystem, setChefUnitSystem] = useState<"Metric" | "Imperial">("Metric");
-  const [chefSubTab, setChefSubTab] = useState<"overview" | "profile" | "security">("overview");
+  const [chefSubTab, setChefSubTab] = useState<"overview" | "profile" | "security" | "builds">("overview");
+  
+  // Build Tracker & Progress History State
+  const [buildLogs, setBuildLogs] = useState([
+    {
+      version: "v1.2.4",
+      date: "May 31, 2026",
+      title: "Settings Expansion & Cully Rebranding",
+      description: "Successfully added full settings management sub-tabs (Overview, Account settings, Security configuration), completed absolute re-branding from Mise to Cully system-wide, integrated custom cropped user profile avatar, and set up live build tracking module with self-documenting version changes.",
+      author: "Angel Acosta",
+      status: "Production sandbox"
+    },
+    {
+      version: "v1.2.3",
+      date: "May 31, 2026",
+      title: "Cropped User Profile Avatar Integration",
+      description: "Created high-fidelity, centered circular profile thumbnail of Chef Angel Acosta to personalize the executive workspace card header.",
+      author: "Angel Acosta",
+      status: "Released"
+    },
+    {
+      version: "v1.2.2",
+      date: "May 31, 2026",
+      title: "Gemini Model Payload Parsing Integrations",
+      description: "Enabled serverless interaction with gemini-3.5-flash parser to structure scribbles and raw ingredient notes into clean digital objects.",
+      author: "AI Coding Assistant",
+      status: "Released"
+    },
+    {
+      version: "v1.2.1",
+      date: "May 31, 2026",
+      title: "Interactive Dynamic Groceries Engine",
+      description: "Added automatic pantry subtraction, interactive meal scheduling checklists, and dual countdown baking timers on side panels.",
+      author: "AI Coding Assistant",
+      status: "Released"
+    }
+  ]);
+
+  const [newBuildVer, setNewBuildVer] = useState("v1.2.5");
+  const [newBuildTitle, setNewBuildTitle] = useState("");
+  const [newBuildDesc, setNewBuildDesc] = useState("");
+  const [newBuildStatus, setNewBuildStatus] = useState("Production sandbox");
+  const [buildNotification, setBuildNotification] = useState("");
   
   // Security State
   const [chefSecurity2FA, setChefSecurity2FA] = useState<boolean>(false);
@@ -102,6 +144,41 @@ export default function App() {
 
   const revokeSession = (id: string) => {
     setChefSessions(chefSessions.filter(s => s.id !== id));
+  };
+
+  const handleAddBuildLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBuildVer || !newBuildTitle || !newBuildDesc) return;
+    
+    const nextLog = {
+      version: newBuildVer,
+      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      title: newBuildTitle,
+      description: newBuildDesc,
+      author: chefName,
+      status: newBuildStatus
+    };
+    
+    setBuildLogs([nextLog, ...buildLogs]);
+    setNewBuildTitle("");
+    setNewBuildDesc("");
+    
+    try {
+      const match = newBuildVer.match(/v(\d+)\.(\d+)\.(\d+)/);
+      if (match) {
+        const major = Number(match[1]);
+        const minor = Number(match[2]);
+        const patch = Number(match[3]);
+        setNewBuildVer(`v${major}.${minor}.${patch + 1}`);
+      }
+    } catch (e) {
+      // fallback
+    }
+    
+    setBuildNotification("Build version entry added successfully!");
+    setTimeout(() => {
+      setBuildNotification("");
+    }, 4500);
   };
   
   // Database State
@@ -1578,12 +1655,13 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
 
                   <div className="text-xs font-mono bg-white/5 backdrop-blur-md border border-white/10 rounded-lg p-3 space-y-1 text-slate-300 md:self-center self-start">
                     <p><span className="text-slate-400">Environment:</span> Production Sandbox</p>
+                    <p><span className="text-slate-400">Active Build:</span> {buildLogs[0]?.version || "v1.2.4"}</p>
                     <p><span className="text-slate-400">Gemini SDK model:</span> gemini-3.5-flash (paid flow supported)</p>
                   </div>
                 </div>
 
                 {/* Account Dashboard Tabs */}
-                <div className="flex border-b border-slate-200 bg-slate-50 overflow-x-auto scrollbar-none">
+                <div className="flex border-b border-slate-200 bg-slate-50 overflow-x-auto scrollbar-none font-sans">
                   <button
                     onClick={() => setChefSubTab("overview")}
                     className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
@@ -1616,6 +1694,17 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                   >
                     <Shield size={14} className={chefSubTab === "security" ? "text-indigo-900" : "text-slate-400"} />
                     Security & Protection
+                  </button>
+                  <button
+                    onClick={() => setChefSubTab("builds")}
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap transition-all ${
+                      chefSubTab === "builds"
+                        ? "border-[#fed01b] bg-white text-slate-900"
+                        : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
+                    }`}
+                  >
+                    <PackageCheck size={14} className={chefSubTab === "builds" ? "text-indigo-900" : "text-slate-400"} />
+                    Build Version & Progress
                   </button>
                 </div>
 
@@ -2093,6 +2182,186 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                               No additional devices connected. Only this browser is online.
                             </p>
                           )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* SUB-TAB 4: BUILDS / PROGRESS TIMELINE */}
+                  {chefSubTab === "builds" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-6 lg:space-y-8"
+                    >
+                      {buildNotification && (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-xs font-medium flex items-center gap-2">
+                          <Check size={16} className="text-emerald-600" />
+                          {buildNotification}
+                        </div>
+                      )}
+
+                      {/* Version Dashboard Block */}
+                      <div className="bg-[#091426] text-white p-6 rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-sm">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono tracking-widest font-bold uppercase text-[#fed01b] bg-indigo-950 px-2 py-0.5 rounded border border-indigo-500/30">
+                              Active Track: SANDBOX
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono font-bold uppercase">
+                              Build Auto-Sync ON
+                            </span>
+                          </div>
+                          <h4 className="text-2xl font-bold tracking-tight">
+                            Cully Build Tracking Engine
+                          </h4>
+                          <p className="text-xs text-slate-300 leading-relaxed font-body-md max-w-xl">
+                            A real-time progress register designed to help stakeholders and developers align on the current software iteration, active features, and next-up feature roadmap logs.
+                          </p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-row md:flex-col items-center md:items-start justify-between md:justify-center gap-4 md:w-44 text-right md:text-left">
+                          <div>
+                            <span className="text-[9px] font-mono uppercase text-slate-400 block">Current Release</span>
+                            <span className="text-xl font-bold font-mono text-[#fed01b]">{buildLogs[0]?.version || "v1.2.4"}</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-mono uppercase text-slate-400 block">Last Log Date</span>
+                            <span className="text-xs font-mono font-semibold text-slate-200">{buildLogs[0]?.date || "May 31, 2026"}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Log a Build Iteration Form */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                        <div className="flex items-center gap-2 pb-1 border-b border-slate-200">
+                          <PackageCheck size={16} className="text-indigo-900" />
+                          <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">Record New Build Iteration</h5>
+                        </div>
+
+                        <form onSubmit={handleAddBuildLog} className="space-y-4 font-sans">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-[10px] font-mono font-bold uppercase text-slate-500 mb-1">
+                                Version Tag
+                              </label>
+                              <input
+                                type="text"
+                                value={newBuildVer}
+                                onChange={(e) => setNewBuildVer(e.target.value)}
+                                placeholder="e.g. v1.2.5"
+                                className="w-full px-3 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
+                                required
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-[10px] font-mono font-bold uppercase text-slate-500 mb-1">
+                                Iteration / Update Title
+                              </label>
+                              <input
+                                type="text"
+                                value={newBuildTitle}
+                                onChange={(e) => setNewBuildTitle(e.target.value)}
+                                placeholder="e.g. Interactive Timers & Layout Polish"
+                                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="md:col-span-2">
+                              <label className="block text-[10px] font-mono font-bold uppercase text-slate-500 mb-1">
+                                Detailed Changelog / Description
+                              </label>
+                              <input
+                                type="text"
+                                value={newBuildDesc}
+                                onChange={(e) => setNewBuildDesc(e.target.value)}
+                                placeholder="e.g. Added custom metric conversions and optimized local storage schemas."
+                                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-mono font-bold uppercase text-slate-500 mb-1">
+                                Track Environment Status
+                              </label>
+                              <select
+                                value={newBuildStatus}
+                                onChange={(e) => setNewBuildStatus(e.target.value)}
+                                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-900 focus:border-indigo-900"
+                              >
+                                <option value="Production sandbox">Production sandbox</option>
+                                <option value="Released">Released</option>
+                                <option value="Internal staging">Internal staging</option>
+                                <option value="Prototype Draft">Prototype Draft</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end pt-2">
+                            <button
+                              type="submit"
+                              className="bg-slate-900 hover:bg-[#091426] text-white text-[10px] font-mono uppercase tracking-widest px-4 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                            >
+                              <Plus size={12} className="text-[#fed01b]" />
+                              Commit Build Log
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+
+                      {/* Changelog Timeline Display */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-[11px] font-mono uppercase text-slate-400 tracking-wider">Historical Progress Timeline</h5>
+                          <span className="text-[10px] font-mono text-slate-400">Total: {buildLogs.length} updates logged</span>
+                        </div>
+
+                        <div className="relative border-l-2 border-slate-200 pl-6 ml-3 space-y-8">
+                          {buildLogs.map((log, idx) => (
+                            <div key={log.version + idx} className="relative group">
+                              {/* Connector dot */}
+                              <div className={`absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border-2 bg-white transition-all ${
+                                idx === 0 
+                                  ? "border-[#fed01b] scale-110 shadow-sm" 
+                                  : "border-slate-300"
+                              }`}>
+                                {idx === 0 && <span className="absolute inset-1 rounded-full bg-indigo-950 animate-ping"></span>}
+                              </div>
+
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2.5">
+                                  <span className="text-xs font-mono font-bold text-indigo-950 bg-slate-100 px-2 py-0.5 rounded">
+                                    {log.version}
+                                  </span>
+                                  <span className="text-[11px] font-mono text-slate-400">
+                                    {log.date}
+                                  </span>
+                                  <span className={`text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                    log.status === "Production sandbox"
+                                      ? "bg-[#fed01b]/10 text-slate-800 border-[#fed01b]/30"
+                                      : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  }`}>
+                                    {log.status}
+                                  </span>
+                                </div>
+
+                                <div className="bg-white border border-slate-200 hover:border-indigo-200 p-4 rounded-xl transition-all shadow-sm">
+                                  <h6 className="text-sm font-bold text-slate-900 tracking-tight leading-tight">
+                                    {log.title}
+                                  </h6>
+                                  <p className="text-xs text-slate-600 leading-relaxed font-body-md mt-1.5">
+                                    {log.description}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400 mt-3 pt-2.5 border-t border-slate-100">
+                                    <span>Logged by:</span>
+                                    <span className="font-semibold text-slate-700">{log.author}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </motion.div>

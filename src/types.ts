@@ -17,6 +17,14 @@ export interface Recipe {
   ingredients: Ingredient[];
   instructions: string[];
   bookmarked?: boolean;
+  nutrition?: NutritionInfo;
+}
+
+export interface NutritionInfo {
+  calories: number;
+  protein: number;
+  fat: number;
+  carbs?: number;
 }
 
 export interface MealPlanDay {

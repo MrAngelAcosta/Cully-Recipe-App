@@ -104,7 +104,7 @@ export default function App() {
   const [chefEmail, setChefEmail] = useState("angel@mrangelacosta.com");
   const [chefTitle, setChefTitle] = useState("Head Home Chef");
   const [chefUnitSystem, setChefUnitSystem] = useState<"Metric" | "Imperial">("Metric");
-  const [chefSubTab, setChefSubTab] = useState<"overview" | "profile" | "security" | "builds" | "backup">("overview");
+  const [chefSubTab, setChefSubTab] = useState<"overview" | "profile" | "categories" | "security" | "builds" | "backup">("overview");
   
   // Build Tracker & Progress History State
   const [buildLogs, setBuildLogs] = useState([
@@ -243,9 +243,33 @@ export default function App() {
   // Search and Filter State
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All Recipes");
+  const [categories, setCategories] = useState<string[]>(() => {
+    const saved = localStorage.getItem("cully_categories");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    return ["Appetizers", "Baking", "Quick Meals", "Desserts"];
+  });
+
+  // State for category edit UI
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingCategoryName, setEditingCategoryName] = useState<string | null>(null);
+  const [editingCategoryInput, setEditingCategoryInput] = useState("");
+  const [categoryError, setCategoryError] = useState("");
+
+  useEffect(() => {
+    localStorage.setItem("cully_categories", JSON.stringify(categories));
+  }, [categories]);
+
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
   const [customTags, setCustomTags] = useState<string[]>(["Pasta", "Sourdough", "Classics", "Quick", "Breakfast", "Superfood", "Vegan", "High-Protein"]);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"newest" | "rating" | "time">("newest");
   const [showNewTagInput, setShowNewTagInput] = useState(false);
   const [newTagNameInput, setNewTagNameInput] = useState("");
 
@@ -296,6 +320,9 @@ export default function App() {
   const [manualIngredients, setManualIngredients] = useState<Ingredient[]>([{ name: "", amount: "" }]);
   const [manualInstructions, setManualInstructions] = useState<string[]>([""]);
   const [manualTagsInput, setManualTagsInput] = useState("");
+  const [manualCalories, setManualCalories] = useState("");
+  const [manualProtein, setManualProtein] = useState("");
+  const [manualFat, setManualFat] = useState("");
 
   // AI Generator Widget State
   const [showAIPanel, setShowAIPanel] = useState(false);
@@ -391,6 +418,119 @@ export default function App() {
   useEffect(() => {
     setBatchMultiplier(1);
   }, [focusedRecipe?.id]);
+
+  // Dynamic Cookbook Category Handlers
+  const handleAddCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) {
+      setCategoryError("Category name cannot be empty.");
+      return;
+    }
+    if (trimmed.toLowerCase() === "all recipes") {
+      setCategoryError("'All Recipes' is reserved for filtering and cannot be created.");
+      return;
+    }
+    if (categories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      setCategoryError(`"${trimmed}" category already exists.`);
+      return;
+    }
+    setCategories(prev => [...prev, trimmed]);
+    setNewCategoryName("");
+    setCategoryError("");
+  };
+
+  const handleRenameCategory = async (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      alert("Category name cannot be empty.");
+      return;
+    }
+    if (trimmed.toLowerCase() === "all recipes") {
+      alert("'All Recipes' is reserved.");
+      return;
+    }
+    if (oldName !== trimmed && categories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      alert(`"${trimmed}" category already exists.`);
+      return;
+    }
+
+    setSyncState("syncing");
+    try {
+      // 1. Update the categories list
+      setCategories(prev => prev.map(c => c === oldName ? trimmed : c));
+      
+      // 2. Selectively update recipes having this category on backend
+      const affectedRecipes = recipesList.filter(r => r.category === oldName);
+      for (const recipe of affectedRecipes) {
+        await fetch(`/api/recipes/${recipe.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: trimmed })
+        });
+      }
+
+      // 3. Update local recipesList state
+      setRecipesList(prev => prev.map(r => r.category === oldName ? { ...r, category: trimmed } : r));
+      
+      // 4. Update selected category filter if it was active
+      if (selectedCategory === oldName) {
+        setSelectedCategory(trimmed);
+      }
+      
+      setEditingCategoryName(null);
+      setEditingCategoryInput("");
+    } catch (err) {
+      console.error("Error renaming category recipes:", err);
+    } finally {
+      setTimeout(() => setSyncState("idle"), 400);
+    }
+  };
+
+  const handleDeleteCategory = async (catName: string) => {
+    if (categories.length <= 1) {
+      alert("You must keep at least one category in your cookbook.");
+      return;
+    }
+
+    const affectedCount = recipesList.filter(r => r.category === catName).length;
+    const remainingCategories = categories.filter(c => c !== catName);
+    const fallbackCategory = remainingCategories[0];
+
+    let confirmMsg = `Are you sure you want to delete the category "${catName}"?`;
+    if (affectedCount > 0) {
+      confirmMsg += `\n\n⚠️ Warning: There are ${affectedCount} recipes assigned to this category. If you proceed, they will be auto-categorized to "${fallbackCategory}".`;
+    }
+
+    if (!confirm(confirmMsg)) return;
+
+    setSyncState("syncing");
+    try {
+      // 1. Update categories array
+      setCategories(remainingCategories);
+
+      // 2. Update all affected recipes on server
+      const affectedRecipes = recipesList.filter(r => r.category === catName);
+      for (const recipe of affectedRecipes) {
+        await fetch(`/api/recipes/${recipe.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: fallbackCategory })
+        });
+      }
+
+      // 3. Update local recipesList state
+      setRecipesList(prev => prev.map(r => r.category === catName ? { ...r, category: fallbackCategory } : r));
+
+      // 4. Switch selected category filter if needed
+      if (selectedCategory === catName) {
+        setSelectedCategory("All Recipes");
+      }
+    } catch (err) {
+      console.error("Error updating recipes after category deletion:", err);
+    } finally {
+      setTimeout(() => setSyncState("idle"), 400);
+    }
+  };
 
   // Handle Bookmarking
   const toggleBookmark = async (e: React.MouseEvent, recipe: Recipe) => {
@@ -495,7 +635,12 @@ export default function App() {
           ingredients: preparedIngredients,
           instructions: preparedInstructions,
           tags: tagsParsed,
-          meals: ["solo"]
+          meals: ["solo"],
+          nutrition: {
+            calories: manualCalories ? parseInt(manualCalories, 10) : 450,
+            protein: manualProtein ? parseInt(manualProtein, 10) : 15,
+            fat: manualFat ? parseInt(manualFat, 10) : 12,
+          }
         })
       });
       const data = await response.json();
@@ -509,6 +654,9 @@ export default function App() {
         setManualIngredients([{ name: "", amount: "" }]);
         setManualInstructions([""]);
         setManualTagsInput("");
+        setManualCalories("");
+        setManualProtein("");
+        setManualFat("");
       }
     } catch (err) {
       console.error(err);
@@ -929,7 +1077,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
   };
 
   // Filter recipes according to query, tags, bookmarks
-  const filteredRecipes = recipesList.filter((recipe) => {
+  const rawFilteredRecipes = recipesList.filter((recipe) => {
     const matchesSearch = 
       recipe.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       recipe.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -944,6 +1092,36 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
     const matchesTagFilter = !activeTagFilter || recipe.tags.includes(activeTagFilter);
 
     return matchesSearch && matchesCategory && matchesBookmark && matchesTagFilter;
+  });
+
+  const parseTimeToMinutes = (timeStr: string): number => {
+    if (!timeStr) return 999999;
+    const matchHours = timeStr.match(/(\d+)\s*h/);
+    const matchMins = timeStr.match(/(\d+)\s*m/);
+    let mins = 0;
+    if (matchHours) mins += parseInt(matchHours[1], 10) * 60;
+    if (matchMins) mins += parseInt(matchMins[1], 10);
+    if (!matchHours && !matchMins) {
+      const rawVal = parseFloat(timeStr);
+      if (!isNaN(rawVal)) return rawVal;
+    }
+    return mins > 0 ? mins : 999999;
+  };
+
+  const filteredRecipes = [...rawFilteredRecipes].sort((a, b) => {
+    if (sortBy === "rating") {
+      return (b.rating || 0) - (a.rating || 0);
+    }
+    if (sortBy === "time") {
+      return parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time);
+    }
+    // "newest" sorting - fallback to descending numerical or string comparison of IDs
+    const aVal = isNaN(Number(a.id)) ? a.id : Number(a.id);
+    const bVal = isNaN(Number(b.id)) ? b.id : Number(b.id);
+    if (typeof aVal === 'number' && typeof bVal === 'number') {
+      return bVal - aVal;
+    }
+    return b.id.localeCompare(a.id);
   });
 
   return (
@@ -1127,6 +1305,25 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {/* Sorting Dropdown Control */}
+                  <div className="flex items-center gap-1.5 p-1 border border-slate-200 rounded-lg bg-[#fafbfb] hover:bg-[#f2f4f6]/40 transition-all">
+                    <div className="p-2 text-slate-400 bg-white rounded-md border border-slate-200/60 shadow-2xs">
+                      <SlidersHorizontal size={12} className="text-slate-600" />
+                    </div>
+                    <div className="flex flex-col pr-1 text-left select-none">
+                      <span className="text-[8px] font-mono uppercase tracking-wider text-slate-400 font-bold leading-none">Sort Cookbook</span>
+                      <select 
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as any)}
+                        className="bg-transparent border-none text-[10px] sm:text-xs font-mono font-bold uppercase text-[#091426] pr-2 focus:outline-none cursor-pointer"
+                      >
+                        <option value="newest">Newest First</option>
+                        <option value="rating">Highest Rated</option>
+                        <option value="time">Shortest Time</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <button 
                     onClick={() => setShowBookmarksOnly(!showBookmarksOnly)}
                     className={`flex items-center gap-2 px-4 py-3 rounded-lg text-xs font-semibold uppercase border transition-all ${showBookmarksOnly ? "bg-amber-100 border-amber-300 text-amber-800" : "bg-white border-slate-200 hover:bg-[#f2f4f6] text-slate-700"}`}
@@ -1140,6 +1337,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                       setSearchQuery("");
                       setSelectedCategory("All Recipes");
                       setActiveTagFilter(null);
+                      setSortBy("newest");
                     }}
                     className="px-4 py-3 bg-white border border-slate-200 hover:bg-[#f2f4f6] rounded-lg text-xs font-semibold uppercase text-slate-600"
                   >
@@ -1151,7 +1349,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
               {/* Category Pills & Tags Slider */}
               <div className="space-y-3">
                 <div className="flex overflow-x-auto gap-2 pb-1 no-scrollbar scroll-smooth">
-                  {CATEGORIES.map((cat) => (
+                  {["All Recipes", ...categories].map((cat) => (
                     <button
                       key={cat}
                       onClick={() => setSelectedCategory(cat)}
@@ -1305,10 +1503,9 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                         onChange={(e) => setAiSelectedCategory(e.target.value)}
                         className="bg-slate-800 text-xs text-white uppercase border border-slate-700 py-1.5 px-3 rounded"
                       >
-                        <option value="Quick Meals">Quick Meals</option>
-                        <option value="Appetizers">Appetizers</option>
-                        <option value="Baking">Baking</option>
-                        <option value="Desserts font-mono">Desserts</option>
+                        {categories.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
                       </select>
                     </div>
 
@@ -1967,6 +2164,17 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                     Settings
                   </button>
                   <button
+                    onClick={() => setChefSubTab("categories")}
+                    className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap shrink-0 transition-all ${
+                      chefSubTab === "categories"
+                        ? "border-[#fed01b] bg-white text-slate-900"
+                        : "border-transparent text-slate-500 hover:text-slate-900 hover:bg-slate-100/50"
+                    }`}
+                  >
+                    <SlidersHorizontal size={14} className={chefSubTab === "categories" ? "text-indigo-900" : "text-slate-400"} />
+                    Recipe Categories
+                  </button>
+                  <button
                     onClick={() => setChefSubTab("security")}
                     className={`flex items-center gap-2 py-4 px-6 text-xs font-mono font-bold uppercase tracking-wider border-b-2 whitespace-nowrap shrink-0 transition-all ${
                       chefSubTab === "security"
@@ -2230,6 +2438,167 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                           Save Kitchen Settings
                         </button>
                       </form>
+                    </motion.div>
+                  )}
+
+                  {/* SUB-TAB: CATEGORIES MANAGEMENT */}
+                  {chefSubTab === "categories" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-6"
+                    >
+                      {/* Explanatory introduction banner */}
+                      <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-xl p-5 shadow-xs relative overflow-hidden">
+                        <div className="absolute right-0 bottom-0 opacity-15 translate-x-4 translate-y-4">
+                          <SlidersHorizontal size={140} className="text-slate-100 rotate-12" />
+                        </div>
+                        <div className="relative z-10 space-y-1.5 md:max-w-2xl">
+                          <span className="text-[9px] tracking-widest font-mono uppercase bg-[#fed01b] text-slate-900 font-bold px-2 py-0.5 rounded select-none">
+                            Cookbook Taxonomy
+                          </span>
+                          <h4 className="text-lg font-bold tracking-tight text-white">Custom Categories Organizer</h4>
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            Fine-tune your family recipe shelves. Create new specialty drawers, rename old headings, or weed out redundant categories dynamically. Customizing categories automatically transfers categorizations across your existing dishes.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Add Category Section */}
+                      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-2xs">
+                        <div className="flex items-center gap-1.5">
+                          <Plus size={16} className="text-indigo-950" />
+                          <h5 className="text-xs font-mono uppercase tracking-widest text-[#091426] font-bold">Create New Category</h5>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="flex-grow">
+                            <input 
+                              type="text" 
+                              placeholder="e.g. Sourdough Delights, Smoked BBQ, Weekend Brunch..." 
+                              className="w-full border border-slate-300 bg-white rounded-lg p-2.5 text-xs font-sans focus:outline-none focus:border-[#091426]"
+                              value={newCategoryName}
+                              onChange={(e) => {
+                                setNewCategoryName(e.target.value);
+                                if (categoryError) setCategoryError("");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddCategory();
+                                }
+                              }}
+                            />
+                            {categoryError && (
+                              <p className="text-[10px] text-rose-600 font-semibold font-mono mt-1 px-1">{categoryError}</p>
+                            )}
+                          </div>
+                          
+                          <button
+                            onClick={handleAddCategory}
+                            className="bg-[#fed01b] border border-[#6f5900] text-[#231b00] hover:brightness-105 font-mono font-bold text-xs uppercase px-5 py-2.5 rounded-lg flex items-center justify-center gap-2 tracking-wider transition-all cursor-pointer whitespace-nowrap"
+                          >
+                            <Plus size={14} /> Create Category
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Existing Categories Dashboard Grid */}
+                      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-2xs">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                          <div className="space-y-0.5">
+                            <h5 className="text-xs font-mono uppercase tracking-widest text-[#091426] font-bold">Active Drawer Enclosure</h5>
+                            <p className="text-[10px] text-slate-400 font-mono">Dynamic categories configured in your Cully client database</p>
+                          </div>
+                          <span className="text-[10px] font-mono font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md">
+                            Total: {categories.length} index shelves
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {categories.map((cat, idx) => {
+                            const isBeingEdited = editingCategoryName === cat;
+                            const recipeCount = recipesList.filter(r => r.category === cat).length;
+                            
+                            return (
+                              <div 
+                                key={cat} 
+                                className="border border-slate-150 rounded-xl p-4 bg-[#fafbfb] hover:bg-slate-50 transition-all flex flex-col justify-between space-y-3 shadow-3xs"
+                              >
+                                {isBeingEdited ? (
+                                  <div className="space-y-3 w-full">
+                                    <div className="flex flex-col gap-1.5">
+                                      <label className="text-[8px] font-mono uppercase tracking-wider text-slate-400">Rename Shelf</label>
+                                      <input 
+                                        type="text" 
+                                        className="w-full border border-slate-300 bg-white rounded-md p-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#091426]"
+                                        value={editingCategoryInput}
+                                        onChange={(e) => setEditingCategoryInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            handleRenameCategory(cat, editingCategoryInput);
+                                          }
+                                        }}
+                                        autoFocus
+                                      />
+                                    </div>
+                                    <div className="flex gap-2 justify-end">
+                                      <button 
+                                        onClick={() => {
+                                          setEditingCategoryName(null);
+                                          setEditingCategoryInput("");
+                                        }}
+                                        className="px-3 py-1 border border-slate-200 hover:bg-slate-100 text-slate-500 rounded text-[10px] font-mono font-bold uppercase tracking-wider"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button 
+                                        onClick={() => handleRenameCategory(cat, editingCategoryInput)}
+                                        className="px-3 py-1 bg-indigo-900 hover:bg-indigo-950 text-white rounded text-[10px] font-mono font-bold uppercase tracking-wider"
+                                      >
+                                        Confirm
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-between items-start">
+                                      <div className="space-y-0.5">
+                                        <p className="text-sm font-bold text-slate-800 uppercase tracking-tight">{cat}</p>
+                                        <p className="text-[10px] font-mono text-indigo-900 font-semibold flex items-center gap-1">
+                                          <span className="inline-block w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+                                          {recipeCount} {recipeCount === 1 ? "dish" : "dishes"} stored on this shelf
+                                        </p>
+                                      </div>
+                                      <span className="text-[9px] font-mono font-bold text-slate-300">
+                                        SHELF #{idx + 1}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-2.5 font-mono">
+                                      <button 
+                                        onClick={() => {
+                                          setEditingCategoryName(cat);
+                                          setEditingCategoryInput(cat);
+                                        }}
+                                        className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-900 hover:bg-slate-100 px-2.5 py-1 rounded transition-all cursor-pointer"
+                                      >
+                                        Rename
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeleteCategory(cat)}
+                                        className="text-[10px] font-bold uppercase tracking-wider text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1 rounded transition-all cursor-pointer"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </motion.div>
                   )}
 
@@ -2933,7 +3302,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 overflow-y-auto flex justify-end"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end overflow-hidden"
             onClick={() => setFocusedRecipe(null)}
           >
             <motion.div 
@@ -2941,18 +3310,10 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="w-full max-w-4xl bg-[#f7f9fb] min-h-screen text-[#191c1e] p-6 md:p-8 space-y-6 flex flex-col justify-between shadow-2xl relative"
+              className="w-full max-w-4xl bg-[#f7f9fb] h-full text-[#191c1e] flex flex-col justify-between shadow-2xl relative overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Close Handle / Corner button */}
-              <button 
-                onClick={() => setFocusedRecipe(null)}
-                className="absolute top-4 left-4 bg-white/20 text-white rounded-full p-2 hover:bg-white/40 transition-all z-20"
-              >
-                <ChevronRight size={20} className="transform rotate-180" />
-              </button>
-
-              <div className="space-y-6 flex-grow pb-10">
+              <div className="flex-grow overflow-y-auto p-6 md:p-8 space-y-6">
                 {/* Visual Banner */}
                 <div className="aspect-video w-full rounded-2xl overflow-hidden bg-slate-900 relative">
                   <img 
@@ -2962,6 +3323,14 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                   
+                  {/* Close Handle / Corner button overlayed on the banner wrapper */}
+                  <button 
+                    onClick={() => setFocusedRecipe(null)}
+                    className="absolute top-4 left-4 bg-black/40 text-white rounded-full p-2 hover:bg-black/60 transition-all z-20 shadow-xs"
+                  >
+                    <ChevronRight size={20} className="transform rotate-180" />
+                  </button>
+
                   <div className="absolute bottom-6 left-6 text-white space-y-1">
                     <span className="text-[10px] tracking-widest font-mono uppercase bg-amber-500 text-slate-900 font-bold px-2.5 py-1 rounded select-none">{focusedRecipe.category}</span>
                     <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-white pt-2">{focusedRecipe.name}</h2>
@@ -2978,6 +3347,49 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                   {focusedRecipe.tags.map(t => (
                     <span key={t} className="text-[9px] font-mono uppercase text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded">#{t}</span>
                   ))}
+                </div>
+
+                {/* Nutritional Information Content Section */}
+                <div className="bg-white border border-slate-220 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold font-mono uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <Sparkles size={14} className="text-amber-500" />
+                      Nutritional Value
+                      {batchMultiplier > 1 ? (
+                        <span className="text-[10px] text-amber-600 font-mono font-bold uppercase tracking-wider bg-amber-50 border border-amber-200/55 px-2 py-0.5 rounded">
+                          Scaled {batchMultiplier}x
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-mono font-normal lowercase">
+                          (per serving)
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-xs text-slate-500 font-body-md">
+                      Fuel stats {batchMultiplier > 1 ? `scaled for your active ${batchMultiplier}x batch multiplier.` : "estimated per single-serving size."}
+                    </p>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-3 w-full md:w-auto shrink-0 font-mono">
+                    <div className="bg-slate-50 border border-slate-150 rounded-xl px-4 py-2.5 text-center min-w-[95px] shadow-xs">
+                      <span className="text-[9px] text-slate-400 uppercase font-semibold block">Calories</span>
+                      <span className="text-sm font-bold text-slate-800">
+                        {focusedRecipe.nutrition?.calories ? focusedRecipe.nutrition.calories * batchMultiplier : 450 * batchMultiplier} <span className="text-[8px] font-normal text-slate-500">kcal</span>
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-150 rounded-xl px-4 py-2.5 text-center min-w-[95px] shadow-xs">
+                      <span className="text-[9px] text-slate-400 uppercase font-semibold block">Protein</span>
+                      <span className="text-sm font-bold text-emerald-600">
+                        {focusedRecipe.nutrition?.protein ? focusedRecipe.nutrition.protein * batchMultiplier : 15 * batchMultiplier} <span className="text-[8px] font-normal text-slate-500">g</span>
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-150 rounded-xl px-4 py-2.5 text-center min-w-[95px] shadow-xs">
+                      <span className="text-[9px] text-slate-400 uppercase font-semibold block">Fat</span>
+                      <span className="text-sm font-bold text-orange-600">
+                        {focusedRecipe.nutrition?.fat ? focusedRecipe.nutrition.fat * batchMultiplier : 12 * batchMultiplier} <span className="text-[8px] font-normal text-slate-500">g</span>
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Focus Split Workspace */}
@@ -3104,10 +3516,10 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
               </div>
 
               {/* Drawer footer Controls */}
-              <div className="border-t border-slate-200 pt-4 flex gap-4 justify-between items-center bg-transparent z-10">
+              <div className="border-t border-slate-200 p-4 md:px-8 md:py-4.5 flex gap-4 justify-between items-center bg-white z-10 shrink-0 shadow-sm">
                 <button 
                   onClick={() => setFocusedRecipe(null)}
-                  className="px-6 py-2.5 border border-slate-350 text-slate-700 text-xs font-semibold uppercase tracking-wider rounded-lg font-mono"
+                  className="px-6 py-2.5 border border-slate-350 text-slate-700 hover:bg-slate-50 transition-colors text-xs font-semibold uppercase tracking-wider rounded-lg font-mono"
                 >
                   Close Focus Mode
                 </button>
@@ -3115,7 +3527,7 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                 <div className="flex gap-3">
                   <button 
                     onClick={() => handleShareRecipe(focusedRecipe)}
-                    className="p-3 border border-slate-350 text-slate-500 hover:text-indigo-900 rounded-lg hover:bg-slate-100 transition-all flex items-center justify-center gap-1.5"
+                    className="p-3 border border-slate-350 text-slate-500 hover:text-indigo-900 hover:bg-slate-50 rounded-lg transition-all flex items-center justify-center gap-1.5"
                     title="Share Recipe Link"
                   >
                     <Share2 size={16} />
@@ -3123,14 +3535,14 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
 
                   <button 
                     onClick={(e) => toggleBookmark(e, focusedRecipe)}
-                    className="p-3 border border-slate-350 rounded-lg hover:bg-slate-100 transition-all"
+                    className="p-3 border border-slate-350 rounded-lg hover:bg-slate-100 transition-all text-slate-500"
                   >
-                    <Bookmark size={16} className={focusedRecipe.bookmarked ? "fill-amber-600 text-amber-600" : "text-slate-500"} />
+                    <Bookmark size={16} className={focusedRecipe.bookmarked ? "fill-amber-600 text-amber-600" : ""} />
                   </button>
 
                   <button 
                     onClick={() => setShowScheduleModal(focusedRecipe)}
-                    className="bg-[#fed01b] border border-[#6f5900] text-slate-900 hover:brightness-105 font-bold text-xs uppercase px-6 py-2.5 rounded-lg font-mono tracking-wider"
+                    className="bg-[#fed01b] border border-[#6f5900] text-[#231b00] hover:brightness-105 font-bold text-xs uppercase px-6 py-2.5 rounded-lg font-mono tracking-wider transition-all"
                   >
                     Set Week Planner
                   </button>
@@ -3449,10 +3861,9 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                       onChange={(e) => setManualCategory(e.target.value)}
                       className="w-full border border-slate-300 rounded p-2 text-xs focus:outline-none"
                     >
-                      <option value="Quick Meals">Quick Meals</option>
-                      <option value="Appetizers">Appetizers</option>
-                      <option value="Baking">Baking</option>
-                      <option value="Desserts">Desserts</option>
+                      {categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -3465,6 +3876,43 @@ Melt dark organic chocolate and unsalted butter in double boiler. Whisk eggs tog
                       value={manualDescription}
                       onChange={(e) => setManualDescription(e.target.value)}
                     />
+                  </div>
+                </div>
+
+                {/* Optional nutrition details */}
+                <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3 space-y-2.5">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500 font-bold block">Optional Nutritional Info (per serving)</span>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-mono uppercase text-slate-400 block">Calories (kcal):</label>
+                      <input 
+                        type="number" 
+                        placeholder="e.g. 450" 
+                        className="w-full border border-slate-300 bg-white rounded p-1.5 text-xs font-mono focus:outline-none focus:border-[#091426]"
+                        value={manualCalories}
+                        onChange={(e) => setManualCalories(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-mono uppercase text-slate-400 block">Protein (g):</label>
+                      <input 
+                        type="number" 
+                        placeholder="e.g. 15" 
+                        className="w-full border border-slate-300 bg-white rounded p-1.5 text-xs font-mono focus:outline-none focus:border-[#091426]"
+                        value={manualProtein}
+                        onChange={(e) => setManualProtein(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-mono uppercase text-slate-400 block">Fat (g):</label>
+                      <input 
+                        type="number" 
+                        placeholder="e.g. 12" 
+                        className="w-full border border-slate-300 bg-white rounded p-1.5 text-xs font-mono focus:outline-none focus:border-[#091426]"
+                        value={manualFat}
+                        onChange={(e) => setManualFat(e.target.value)}
+                      />
+                    </div>
                   </div>
                 </div>
 

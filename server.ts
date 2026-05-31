@@ -43,7 +43,8 @@ let recipes: Recipe[] = [
       "Toss the pasta directly into the sauce, adding a splash of the pasta cooking water and a generous handful of ripped fresh basil.",
       "Finely grate Parmigiano-Reggiano and fold everything until a glossy, rich sauce wraps around every tube of pasta. Serve with a pinch of red pepper flakes."
     ],
-    bookmarked: true
+    bookmarked: true,
+    nutrition: { calories: 512, protein: 14, fat: 16 }
   },
   {
     id: "2",
@@ -71,7 +72,8 @@ let recipes: Recipe[] = [
       "Slide the pizza onto the blistering hot stone or steel using a floured wooden peel. Bake for 6 to 8 minutes until the crust is blistered and charred, and cheese is bubbling.",
       "Remove premium bake, immediately scatter fresh basil leaves, drizzle a thin stream of premium olive oil, slice immediately and serve hot."
     ],
-    bookmarked: false
+    bookmarked: false,
+    nutrition: { calories: 680, protein: 26, fat: 22 }
   },
   {
     id: "3",
@@ -101,7 +103,8 @@ let recipes: Recipe[] = [
       "Schmear the creamy green blend generously on active sourdough. Carefully lift poached eggs with a slotted spoon, dry on paper towel, place over the toast.",
       "Garnish with radish microgreens, cracked black pepper, flaky fleur de sel, and red chili flakes."
     ],
-    bookmarked: false
+    bookmarked: false,
+    nutrition: { calories: 340, protein: 12, fat: 19 }
   }
 ];
 
@@ -278,7 +281,8 @@ app.post("/api/recipes/ai-generate", async (req, res) => {
           "In a wide carbon-steel pan, heat extra virgin olive oil over medium-high heat until shimmer ripples form.",
           "Sauté your ingredients to perfection, bringing out their natural sweetness and deep savory aroma.",
           "Plate elegantly, add a dash of flaky sea salt, rip fresh herbs over the top, and serve warm immediately."
-        ]
+        ],
+        nutrition: { calories: 420, protein: 12, fat: 14 }
       }
     });
   }
@@ -319,9 +323,18 @@ app.post("/api/recipes/ai-generate", async (req, res) => {
             tags: {
               type: Type.ARRAY,
               items: { type: Type.STRING }
+            },
+            nutrition: {
+              type: Type.OBJECT,
+              properties: {
+                calories: { type: Type.NUMBER, description: "Total calories (kcal) per serving" },
+                protein: { type: Type.NUMBER, description: "Grams of protein per serving" },
+                fat: { type: Type.NUMBER, description: "Grams of fat per serving" }
+              },
+              required: ["calories", "protein", "fat"]
             }
           },
-          required: ["name", "description", "time", "category", "ingredients", "instructions", "tags"]
+          required: ["name", "description", "time", "category", "ingredients", "instructions", "tags", "nutrition"]
         }
       }
     });
@@ -376,7 +389,8 @@ app.post("/api/recipes/ai-scan", async (req, res) => {
           "Organized from the original parsed block data.",
           "Consult your pasted recipe source for step guides.",
           "Bon Appétit!"
-        ]
+        ],
+        nutrition: { calories: 380, protein: 15, fat: 10 }
       }
     });
   }
@@ -421,9 +435,18 @@ app.post("/api/recipes/ai-scan", async (req, res) => {
             tags: {
               type: Type.ARRAY,
               items: { type: Type.STRING }
+            },
+            nutrition: {
+              type: Type.OBJECT,
+              properties: {
+                calories: { type: Type.NUMBER, description: "Total calories (kcal) per serving" },
+                protein: { type: Type.NUMBER, description: "Grams of protein per serving" },
+                fat: { type: Type.NUMBER, description: "Grams of fat per serving" }
+              },
+              required: ["calories", "protein", "fat"]
             }
           },
-          required: ["name", "description", "time", "category", "ingredients", "instructions", "tags"]
+          required: ["name", "description", "time", "category", "ingredients", "instructions", "tags", "nutrition"]
         }
       }
     });
